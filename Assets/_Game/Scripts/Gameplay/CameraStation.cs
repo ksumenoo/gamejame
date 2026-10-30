@@ -1,13 +1,15 @@
 using DG.Tweening;
 using Jam.Exposure;
 using Jam.Interaction;
+using NaughtyAttributes;
 using UnityEngine;
 
 namespace Jam.Gameplay
 {
     /// <summary>
     /// Камера-обскура как предмет в мире: E — открыть заслонку, ждать выдержку, E — забрать пластину.
-    /// Вешается на корень камеры (рядом с ObscuraCamera или выше). Нужен коллайдер на модели ящика.
+    /// Корень стоит на полу, ObscuraCamera — в дочернем объекте на уровне отверстия.
+    /// Анимации заслонки и корпуса — DOTween.
     /// </summary>
     public class CameraStation : MonoBehaviour, IInteractable
     {
@@ -16,10 +18,17 @@ namespace Jam.Gameplay
         public ObscuraCamera obscura;
         [Min(0.5f)] public float exposureSeconds = 6f;
 
-        [Header("Заслонка (необязательно)")]
+        [Header("Заслонка")]
         public Transform shutter;
-        public Vector3 shutterOpenOffset = new(0f, 0.06f, 0f);
-        public float shutterTime = 0.25f;
+        [Tooltip("Смещение заслонки при открытии, в осях родителя заслонки.")]
+        public Vector3 shutterOpenOffset = new(0f, 0.12f, 0f);
+        [Min(0.01f)] public float shutterOpenTime = 0.22f;
+        [Min(0.01f)] public float shutterCloseTime = 0.12f;
+
+        [Header("Корпус (необязательно)")]
+        [Tooltip("Модель камеры. Вздрагивает при щелчке заслонки.")]
+        public Transform body;
+        public float clickShakeStrength = 1.2f;
 
         [Header("Звук (необязательно)")]
         public AudioSource audioSource;
@@ -27,10 +36,11 @@ namespace Jam.Gameplay
         public AudioClip shutterCloseClip;
         public AudioClip tickLoop;
 
-        public State Current { get; private set; } = State.Idle;
+        [ShowNativeProperty] public State Current { get; private set; } = State.Idle;
 
         Plate _plate;
         Vector3 _shutterClosedPos;
+        Sequence _shutterSeq;
 
         public string Prompt => Current switch
         {
@@ -61,21 +71,28 @@ namespace Jam.Gameplay
             switch (Current)
             {
                 case State.Idle:
-                    Current = State.Exposing;
-                    MoveShutter(open: true);
-                    Play(shutterOpenClip);
-                    if (audioSource && tickLoop) { audioSource.clip = tickLoop; audioSource.loop = true; audioSource.Play(); }
-                    obscura.BeginExposure(exposureSeconds, false);
+                    OpenShutter();
                     break;
-
                 case State.PlateReady:
                     if (TryGetInventory(who, out var inv) && inv.Add(_plate))
                     {
                         _plate = null;
                         Current = State.Idle;
+                        if (body) body.DOPunchScale(Vector3.one * 0.03f, 0.2f, 6, 0.5f);
                     }
                     break;
             }
+        }
+
+        [Button("Открыть заслонку (тест)")]
+        void OpenShutter()
+        {
+            if (Current != State.Idle || !obscura) return;
+            Current = State.Exposing;
+            AnimateShutter(open: true);
+            Play(shutterOpenClip);
+            if (audioSource && tickLoop) { audioSource.clip = tickLoop; audioSource.loop = true; audioSource.Play(); }
+            obscura.BeginExposure(exposureSeconds, false);
         }
 
         void OnExposureFinished(ObscuraCamera cam, Plate plate)
@@ -83,17 +100,27 @@ namespace Jam.Gameplay
             if (Current != State.Exposing) return; // выдержку запустил не игрок (например, отладочный тестер)
             _plate = plate;
             Current = State.PlateReady;
-            MoveShutter(open: false);
+            AnimateShutter(open: false);
             if (audioSource && audioSource.loop) { audioSource.Stop(); audioSource.loop = false; }
             Play(shutterCloseClip);
         }
 
-        void MoveShutter(bool open)
+        void AnimateShutter(bool open)
         {
-            if (!shutter) return;
-            shutter.DOKill();
-            shutter.DOLocalMove(open ? _shutterClosedPos + shutterOpenOffset : _shutterClosedPos, shutterTime)
-                   .SetEase(Ease.OutQuad);
+            _shutterSeq?.Kill();
+            _shutterSeq = DOTween.Sequence().SetLink(gameObject);
+
+            if (shutter)
+            {
+                var target = open ? _shutterClosedPos + shutterOpenOffset : _shutterClosedPos;
+                _shutterSeq.Append(shutter.DOLocalMove(target, open ? shutterOpenTime : shutterCloseTime)
+                                          .SetEase(open ? Ease.OutCubic : Ease.InQuad));
+            }
+            if (body)
+            {
+                // щелчок: корпус коротко вздрагивает, когда заслонка доходит до упора
+                _shutterSeq.Append(body.DOShakeRotation(0.15f, clickShakeStrength, 18, 90f, true));
+            }
         }
 
         void Play(AudioClip clip)
@@ -110,7 +137,7 @@ namespace Jam.Gameplay
         void OnDestroy()
         {
             _plate?.Release();
-            if (shutter) shutter.DOKill();
+            _shutterSeq?.Kill();
         }
     }
 }

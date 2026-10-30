@@ -1,0 +1,30 @@
+GIMP Palette
+Name: House
+Columns: 13
+#
+ 20  17  16	Dark 1 #141110
+ 42  32  26	Dark 2 #2A201A
+ 61  44  34	Walnut 1 #3D2C22
+ 90  64  48	Walnut 2 #5A4030
+122  90  64	Walnut 3 #7A5A40
+154 122  88	Light Wood 1 #9A7A58
+184 150 108	Light Wood 2 #B8966C
+ 74  58  30	Brass 1 #4A3A1E
+122  98  48	Brass 2 #7A6230
+168 138  72	Brass 3 #A88A48
+201 173 106	Brass 4 #C9AD6A
+ 44  52  40	Green 1 #2C3428
+ 74  86  64	Green 2 #4A5640
+110 122  94	Green 3 #6E7A5E
+ 58  22  24	Burgundy 1 #3A1618
+ 94  36  38	Burgundy 2 #5E2426
+132  57  58	Burgundy 3 #84393A
+ 74  70  68	Plaster 1 #4A4644
+110 106 100	Plaster 2 #6E6A64
+148 142 132	Plaster 3 #948E84
+186 178 162	Plaster 4 #BAB2A2
+214 204 180	Cream 1 #D6CCB4
+232 223 200	Cream 2 #E8DFC8
+ 92  90  88	Stone 1 #5C5A58
+138 136 132	Stone 2 #8A8884
+ 38  40  42	Iron #26282A
