@@ -37,6 +37,8 @@ namespace Jam.Player
         public float CurrentSpeed { get; private set; }
         public bool IsRunning { get; private set; }
         public bool IsSneaking { get; private set; }
+        /// <summary>Множитель скорости от снаряжения (поднятая обскура — 0.4). Бег при множителе меньше 1 запрещён.</summary>
+        public float SpeedMultiplier { get; set; } = 1f;
 
         /// <summary>Вызывается на каждый шаг — сюда вешаем звук шагов.</summary>
         public event System.Action<FirstPersonController> Footstep;
@@ -101,8 +103,8 @@ namespace Jam.Player
         void Move(Vector2 input)
         {
             IsSneaking = !InputLocked && _sneak.IsPressed();
-            IsRunning = !InputLocked && !IsSneaking && _run.IsPressed() && input.y > 0.1f;
-            float targetSpeed = IsSneaking ? sneakSpeed : IsRunning ? runSpeed : walkSpeed;
+            IsRunning = !InputLocked && !IsSneaking && SpeedMultiplier >= 0.99f && _run.IsPressed() && input.y > 0.1f;
+            float targetSpeed = (IsSneaking ? sneakSpeed : IsRunning ? runSpeed : walkSpeed) * SpeedMultiplier;
 
             Vector3 wish = transform.right * input.x + transform.forward * input.y;
             if (wish.sqrMagnitude > 1f) wish.Normalize();

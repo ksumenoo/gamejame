@@ -15,6 +15,10 @@ Shader "Jam/PlateDisplay"
         _Vignette ("Vignette", Range(0, 2)) = 0.9
         _Overlay ("Scratches / patina (multiply)", 2D) = "white" {}
         _OverlayStrength ("Overlay strength", Range(0, 1)) = 0.6
+        _Brightness ("Brightness", Range(0, 2)) = 1
+        [Toggle] _LiveGrain ("Live grain (for hand obscura)", Float) = 0
+        _RedKeep ("Keep red accent", Range(0, 1)) = 1
+        _RedColor ("Red accent color", Color) = (0.62, 0.07, 0.05, 1)
 
         // для UI-масок
         _StencilComp ("Stencil Comparison", Float) = 8
@@ -53,8 +57,8 @@ Shader "Jam/PlateDisplay"
 
             sampler2D _MainTex;
             sampler2D _Overlay;
-            float _Develop, _Flip, _Contrast, _Grain, _Vignette, _OverlayStrength;
-            fixed4 _DarkTone, _LightTone;
+            float _Develop, _Flip, _Contrast, _Grain, _Vignette, _OverlayStrength, _Brightness, _LiveGrain, _RedKeep;
+            fixed4 _DarkTone, _LightTone, _RedColor;
 
             v2f vert (appdata v)
             {
@@ -72,15 +76,20 @@ Shader "Jam/PlateDisplay"
                 float2 uv = _Flip > 0.5 ? 1.0 - i.uv : i.uv;
 
                 float3 c = tex2D(_MainTex, uv).rgb;
+                // красный акцент (Маргарет) переживает тонирование: всё остальное уходит в сепию
+                float redness = saturate((c.r - max(c.g, c.b)) * 4.0 - 0.15);
+
                 float lum = dot(c, float3(0.299, 0.587, 0.114));
                 lum = saturate((lum - 0.5) * _Contrast + 0.5);
 
                 // проявка: светлое проступает раньше тёмного
                 float reveal = saturate(_Develop * 1.6 - (1.0 - lum) * 0.6);
                 lum *= reveal;
+                lum *= _Brightness;
 
-                // зерно (статичное на пластине, чуть живое во время проявки)
-                float g = hash(floor(i.uv * float2(320, 240)) + floor(_Develop * 8.0)) - 0.5;
+                // зерно: на пластине статичное, в живой обскуре кипит
+                float seed = _LiveGrain > 0.5 ? floor(_Time.y * 15.0) : floor(_Develop * 8.0);
+                float g = hash(floor(i.uv * float2(320, 240)) + seed) - 0.5;
                 lum = saturate(lum + g * _Grain);
 
                 // виньетка
@@ -88,6 +97,7 @@ Shader "Jam/PlateDisplay"
                 lum *= saturate(1.0 - dot(d, d) * _Vignette * 2.0);
 
                 float3 col = lerp(_DarkTone.rgb, _LightTone.rgb, lum);
+                col = lerp(col, _RedColor.rgb * (0.35 + lum * 0.9), redness * _RedKeep * reveal);
 
                 // царапины и патина от художников
                 float3 ov = tex2D(_Overlay, i.uv).rgb;

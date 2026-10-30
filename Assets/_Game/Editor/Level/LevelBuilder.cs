@@ -19,16 +19,23 @@ namespace Jam.EditorTools
     /// <summary>
     /// Tools → Jam → Build Level From House.
     /// Берёт House.fbx с метками из Blender и собирает в открытой сцене объект LEVEL_Generated:
-    /// дом, камеры-станции (CAM_xx), игрока (SPAWN_Player), призрака с маршрутом (GHOST_xx, STOP_GHOST_xx),
-    /// свет по комнатам, NavMesh, интерфейс. Повторный запуск пересобирает только LEVEL_Generated —
-    /// всё, что ты добавил в сцену вне него, остаётся.
+    /// дом, штативы (CAM_xx), сцены прошлого (SCENE_xx или заглушки перед штативами), игрока с ручной обскурой
+    /// (SPAWN_Player), призрака (GHOST_xx, STOP_GHOST_xx), свет, NavMesh, интерфейс.
+    /// Повторный запуск пересобирает только LEVEL_Generated — всё, что вне него, остаётся.
     /// </summary>
     public static class LevelBuilder
     {
         const string RootName = "LEVEL_Generated";
         const string MatFolder = "Assets/_Game/Level";
-        const string GhostLayerName = "Ghost";
         const string PlateMatPath = "Assets/_Game/Exposure/Debug/M_PlateDisplay.mat";
+        const string CameraModelPath = "Assets/Art/3D/Models/Props/camera.fbx";
+        const float LensHeight = 1.4f;
+
+        // слои: Ghost — Маргарет, Past — фигуры прошлого, PlayerOnly — то, что видит только глаз игрока
+        static int s_ghost, s_past, s_playerOnly;
+        static int MaskEyes => ~((1 << s_ghost) | (1 << s_past));
+        static int MaskObscura => ~(1 << s_playerOnly);
+        static int MaskSolid => ~((1 << s_ghost) | (1 << s_past) | (1 << s_playerOnly));
 
         [MenuItem("Tools/Jam/Build Level From House")]
         public static void Build()
@@ -41,10 +48,12 @@ namespace Jam.EditorTools
                 return;
             }
 
-            int ghostLayer = EnsureLayer(GhostLayerName);
-            if (ghostLayer < 0)
+            s_ghost = EnsureLayer("Ghost");
+            s_past = EnsureLayer("Past");
+            s_playerOnly = EnsureLayer("PlayerOnly");
+            if (s_ghost < 0 || s_past < 0 || s_playerOnly < 0)
             {
-                EditorUtility.DisplayDialog("Build Level", "Нет свободного слоя для Ghost.", "OK");
+                EditorUtility.DisplayDialog("Build Level", "Нет свободных слоёв для Ghost / Past / PlayerOnly.", "OK");
                 return;
             }
 
@@ -58,7 +67,10 @@ namespace Jam.EditorTools
             var matFloor = SaveMat("M_Level_Floor", new Color(0.36f, 0.27f, 0.19f));
             var matProp = SaveMat("M_Level_Prop", new Color(0.45f, 0.35f, 0.25f));
             var matDark = SaveMat("M_Level_Dark", new Color(0.12f, 0.11f, 0.1f));
-            var matGhost = SaveMat("M_Level_GhostPlaceholder", new Color(0.95f, 0.95f, 0.9f));
+            var matGhost = SaveMat("M_Level_GhostPlaceholder", new Color(0.7f, 0.12f, 0.1f)); // красный — проверка акцента на пластине
+            var matPastAlive = SaveBillboardMat("M_Past_Alive_Placeholder", new Color(0.75f, 0.72f, 0.68f));
+            var matPastDead = SaveBillboardMat("M_Past_Dead_Placeholder", new Color(1f, 1f, 1f));
+            var matPlate = LoadOrCreatePlateMat();
 
             var root = new GameObject(RootName);
             Undo.RegisterCreatedObjectUndo(root, "Build Level");
@@ -76,15 +88,29 @@ namespace Jam.EditorTools
                 .GroupBy(t => t.name)
                 .ToDictionary(g => g.Key, g => g.First());
 
-            // ---------- камеры-станции ----------
+            // ---------- штативы ----------
             var stationsRoot = new GameObject("Stations").transform;
             stationsRoot.SetParent(root.transform, false);
             var camNames = markers.Keys.Where(n => Regex.IsMatch(n, @"^CAM_\d+$")).OrderBy(n => n).ToList();
+            var stations = new List<(CameraStation station, Vector3 dir, int index)>();
             foreach (var camName in camNames)
             {
                 var m = markers[camName];
                 Vector3 dir = markers.TryGetValue(camName + "_LOOK", out var look) ? look.position - m.position : m.forward;
-                CreateStation(camName, m.position, dir, stationsRoot, ghostLayer, matProp, matDark);
+                var st = CreateStation(camName, m.position, dir, stationsRoot, matProp, matDark);
+                stations.Add((st, dir, int.Parse(camName.Substring(4))));
+            }
+
+            // ---------- сцены прошлого ----------
+            var scenesRoot = new GameObject("PastScenes").transform;
+            scenesRoot.SetParent(root.transform, false);
+            foreach (var (station, dir, index) in stations)
+            {
+                string sceneMarker = $"SCENE_{index:00}";
+                Vector3 anchor = markers.TryGetValue(sceneMarker, out var sm)
+                    ? sm.position
+                    : station.transform.position + Flat(dir) * 3f;
+                CreatePastScene(index, anchor, station, scenesRoot, matPastAlive, matPastDead, isPlaceholder: sm == null);
             }
 
             // ---------- игрок ----------
@@ -95,7 +121,7 @@ namespace Jam.EditorTools
                 if (markers.TryGetValue("SPAWN_Player_LOOK", out var spawnLook)) spawnDir = spawnLook.position - spawn.position;
             }
             else Debug.LogWarning("[Jam] Нет метки SPAWN_Player, игрок в начале координат.");
-            var (player, interactor, inventory) = CreatePlayer(spawnPos, spawnDir, root.transform, ghostLayer);
+            var (player, fpc, eyes, interactor, inventory) = CreatePlayer(spawnPos, spawnDir, root.transform);
 
             // ---------- призрак ----------
             var routeMarkers = markers.Values
@@ -104,7 +130,7 @@ namespace Jam.EditorTools
                 .OrderBy(x => int.Parse(x.m.Groups[2].Value))
                 .ToList();
             if (routeMarkers.Count > 0)
-                CreateGhost(routeMarkers.Select(x => (x.t, x.m.Groups[1].Success)).ToList(), root.transform, ghostLayer, matGhost);
+                CreateGhost(routeMarkers.Select(x => (x.t, x.m.Groups[1].Success)).ToList(), root.transform, matGhost);
             else Debug.LogWarning("[Jam] Нет меток GHOST_xx, призрак не создан.");
 
             // ---------- свет и атмосфера ----------
@@ -121,11 +147,18 @@ namespace Jam.EditorTools
             var surface = root.AddComponent<NavMeshSurface>();
             surface.collectObjects = CollectObjects.Children;
             surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
-            surface.layerMask = ~(1 << ghostLayer);
+            surface.layerMask = MaskSolid;
             root.AddComponent<RuntimeNavMeshBake>();
 
-            // ---------- интерфейс ----------
-            CreateHud(root.transform, interactor, inventory);
+            // ---------- интерфейс и ручная обскура ----------
+            var hud = CreateHud(root.transform, interactor, inventory, fpc, matPlate);
+            var hand = player.AddComponent<HandObscura>();
+            hand.eyes = eyes;
+            hand.frame = hud.frame;
+            hand.frameGroup = hud.frameGroup;
+            hand.view = hud.glass;
+            hand.viewMaterial = matPlate;
+            hand.cullingMask = MaskObscura;
 
             // ---------- Graphy: FPS и память, чтобы следить за WebGL ----------
             var graphyPath = AssetDatabase.FindAssets("Graphy t:Prefab")
@@ -139,29 +172,19 @@ namespace Jam.EditorTools
 
             EditorSceneManager.MarkSceneDirty(scene);
             Selection.activeGameObject = root;
-            Debug.Log($"[Jam] Уровень собран: {camNames.Count} камер, {routeMarkers.Count} точек маршрута. Сохрани сцену (Ctrl+S).");
+            Debug.Log($"[Jam] Уровень собран: {camNames.Count} штативов, {stations.Count} сцен прошлого, {routeMarkers.Count} точек маршрута. Сохрани сцену (Ctrl+S).");
         }
 
-        // ================= части уровня =================
-
-        const string CameraModelPath = "Assets/Art/3D/Models/Props/camera.fbx";
-        const float LensHeight = 1.4f;
+        // ================= штатив =================
 
         /// <summary>
-        /// Станция: корень на полу (CameraStation + коллайдер для E), модель внутри,
-        /// дочерний Lens с Camera + ObscuraCamera на уровне отверстия.
+        /// Корень на полу (CameraStation), модель внутри, дочерний Lens с Camera + ObscuraCamera на уровне отверстия.
         /// Если есть camera.fbx — ставит её, иначе кубики-заглушки.
         /// </summary>
-        static void CreateStation(string name, Vector3 markerPos, Vector3 dir, Transform parent, int ghostLayer, Material matProp, Material matDark)
+        static CameraStation CreateStation(string name, Vector3 markerPos, Vector3 dir, Transform parent, Material matProp, Material matDark)
         {
-            dir.y = 0f;
-            if (dir.sqrMagnitude < 0.001f) dir = Vector3.forward;
-            dir.Normalize();
-
-            float floorY = markerPos.y - LensHeight;
-            Physics.SyncTransforms();
-            if (Physics.Raycast(markerPos, Vector3.down, out var hit, 4f, ~(1 << ghostLayer), QueryTriggerInteraction.Ignore))
-                floorY = hit.point.y;
+            dir = Flat(dir);
+            float floorY = FloorY(markerPos, markerPos.y - LensHeight);
 
             var root = new GameObject(name);
             root.transform.SetParent(parent, false);
@@ -182,7 +205,6 @@ namespace Jam.EditorTools
                 shutter = FindDeep(model.transform, "Shutter");
                 if (!shutter) Debug.LogWarning("[Jam] В camera.fbx нет объекта 'Shutter' — заслонка не будет двигаться.");
 
-                // разворачиваем модель так, чтобы заслонка (перед ящика) смотрела по направлению метки
                 var b = RenderBounds(model);
                 var shutterR = shutter ? shutter.GetComponent<Renderer>() : null;
                 Renderer boxR = null;
@@ -215,7 +237,7 @@ namespace Jam.EditorTools
                 }
                 else
                 {
-                    lensWorld = new Vector3(b.center.x, b.center.y, b.center.z) + dir * (Mathf.Max(b.extents.x, b.extents.z) + 0.03f);
+                    lensWorld = b.center + dir * (Mathf.Max(b.extents.x, b.extents.z) + 0.03f);
                 }
 
                 float lensH = lensWorld.y - floorY;
@@ -245,7 +267,6 @@ namespace Jam.EditorTools
                 slideWorld = -root.transform.right * 0.13f;
             }
 
-            // ---- объектив ----
             var lens = new GameObject("Lens");
             lens.transform.SetParent(root.transform, false);
             lens.transform.SetPositionAndRotation(lensWorld, root.transform.rotation);
@@ -254,16 +275,15 @@ namespace Jam.EditorTools
             cam.fieldOfView = 70f;
             cam.nearClipPlane = 0.1f;
             cam.farClipPlane = 25f;
-            cam.cullingMask = ~0;
+            cam.cullingMask = MaskObscura;
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = Color.black;
             cam.enabled = false;
 
             var obscura = lens.AddComponent<ObscuraCamera>();
             obscura.accumulateShader = Shader.Find("Hidden/Jam/ExposureAccumulate");
-            obscura.occluders = ~(1 << ghostLayer);
+            obscura.occluders = MaskSolid;
 
-            // ---- станция ----
             var station = root.AddComponent<CameraStation>();
             station.obscura = obscura;
             station.body = body;
@@ -271,38 +291,56 @@ namespace Jam.EditorTools
             station.exposureSeconds = 6f;
             if (shutter)
                 station.shutterOpenOffset = shutter.parent ? shutter.parent.InverseTransformVector(slideWorld) : slideWorld;
+            return station;
         }
 
-        static Transform FindDeep(Transform t, string name)
+        // ================= сцена прошлого =================
+
+        /// <summary>
+        /// Заглушка сцены: три фигуры в ряд, две живые (качаются → смазаны), средняя мёртвая (неподвижна → резкая).
+        /// Когда художники нарисуют силуэты, меняем текстуры у материалов фигур.
+        /// </summary>
+        static void CreatePastScene(int index, Vector3 anchor, CameraStation station, Transform parent, Material alive, Material dead, bool isPlaceholder)
         {
-            foreach (var c in t.GetComponentsInChildren<Transform>(true))
-                if (c.name == name) return c;
-            return null;
+            float floorY = FloorY(anchor + Vector3.up * 1.5f, anchor.y);
+            var go = new GameObject($"Scene_{index:00}" + (isPlaceholder ? "_Placeholder" : ""));
+            go.transform.SetParent(parent, false);
+            Vector3 toStation = Flat(station.transform.position - anchor);
+            go.transform.SetPositionAndRotation(new Vector3(anchor.x, floorY, anchor.z), Quaternion.LookRotation(-toStation));
+            go.layer = s_past;
+
+            var scene = go.AddComponent<PastScene>();
+            scene.index = index;
+            scene.station = station;
+            scene.startState = PastScene.State.Visible;
+
+            float[] offsets = { -0.75f, 0f, 0.75f };
+            for (int i = 0; i < offsets.Length; i++)
+            {
+                bool isDead = i == 1;
+                var fig = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                Object.DestroyImmediate(fig.GetComponent<Collider>());
+                fig.name = isDead ? "Figure_Dead" : "Figure_Alive";
+                fig.layer = s_past;
+                fig.transform.SetParent(go.transform, false);
+                fig.transform.localPosition = new Vector3(offsets[i], 0.85f, 0f);
+                fig.transform.localScale = new Vector3(0.6f, 1.7f, 1f);
+                var mr = fig.GetComponent<MeshRenderer>();
+                mr.sharedMaterial = isDead ? dead : alive;
+                mr.shadowCastingMode = ShadowCastingMode.Off;
+                var pf = fig.AddComponent<PastFigure>();
+                pf.alive = !isDead;
+            }
         }
 
-        static Bounds RenderBounds(GameObject go)
-        {
-            var rs = go.GetComponentsInChildren<Renderer>();
-            if (rs.Length == 0) return new Bounds(go.transform.position, Vector3.zero);
-            var b = rs[0].bounds;
-            foreach (var r in rs) b.Encapsulate(r.bounds);
-            return b;
-        }
+        // ================= игрок =================
 
-        static IEnumerable<Vector3> Corners(Bounds b)
+        static (GameObject, FirstPersonController, Camera, Interactor, PlateInventory) CreatePlayer(Vector3 pos, Vector3 dir, Transform parent)
         {
-            for (int i = 0; i < 8; i++)
-                yield return b.center + Vector3.Scale(b.extents, new Vector3((i & 1) == 0 ? -1 : 1, (i & 2) == 0 ? -1 : 1, (i & 4) == 0 ? -1 : 1));
-        }
-
-        static (GameObject, Interactor, PlateInventory) CreatePlayer(Vector3 pos, Vector3 dir, Transform parent, int ghostLayer)
-        {
-            dir.y = 0f;
-            if (dir.sqrMagnitude < 0.001f) dir = Vector3.forward;
-
+            dir = Flat(dir);
             var player = new GameObject("Player");
             player.transform.SetParent(parent, false);
-            player.transform.SetPositionAndRotation(pos + Vector3.up * 0.05f, Quaternion.LookRotation(dir.normalized));
+            player.transform.SetPositionAndRotation(pos + Vector3.up * 0.05f, Quaternion.LookRotation(dir));
 
             var cc = player.AddComponent<CharacterController>();
             cc.height = 1.8f;
@@ -316,7 +354,7 @@ namespace Jam.EditorTools
             var camGo = new GameObject("Main Camera") { tag = "MainCamera" };
             camGo.transform.SetParent(pivot, false);
             var cam = camGo.AddComponent<Camera>();
-            cam.cullingMask = ~(1 << ghostLayer);
+            cam.cullingMask = MaskEyes;
             cam.nearClipPlane = 0.05f;
             cam.farClipPlane = 40f;
             cam.fieldOfView = 70f;
@@ -328,21 +366,23 @@ namespace Jam.EditorTools
             fpc.cameraPivot = pivot;
             var interactor = player.AddComponent<Interactor>();
             interactor.viewCamera = cam;
-            interactor.mask = ~(1 << ghostLayer);
+            interactor.mask = MaskSolid;
             var inv = player.AddComponent<PlateInventory>();
             player.AddComponent<NavMeshModifier>().ignoreFromBuild = true; // капсула игрока не должна дырявить NavMesh
-            return (player, interactor, inv);
+            return (player, fpc, cam, interactor, inv);
         }
 
-        static void CreateGhost(List<(Transform t, bool stop)> route, Transform parent, int ghostLayer, Material mat)
+        // ================= призрак =================
+
+        static void CreateGhost(List<(Transform t, bool stop)> route, Transform parent, Material mat)
         {
-            var ghost = new GameObject("Ghost") { layer = ghostLayer };
+            var ghost = new GameObject("Ghost") { layer = s_ghost };
             ghost.transform.SetParent(parent, false);
             ghost.transform.position = route[0].t.position;
 
             var visual = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             visual.name = "Visual_Placeholder";
-            visual.layer = ghostLayer;
+            visual.layer = s_ghost;
             visual.transform.SetParent(ghost.transform, false);
             visual.transform.localPosition = new Vector3(0f, 1f, 0f);
             visual.GetComponent<Renderer>().sharedMaterial = mat;
@@ -367,6 +407,8 @@ namespace Jam.EditorTools
                 ai.route.Add(new GhostAI.Waypoint { point = t, canStop = stop });
         }
 
+        // ================= свет =================
+
         static void CreateRoomLights(GameObject house, Transform parent)
         {
             var lightsRoot = new GameObject("RoomLights").transform;
@@ -386,7 +428,16 @@ namespace Jam.EditorTools
             }
         }
 
-        static void CreateHud(Transform parent, Interactor interactor, PlateInventory inventory)
+        // ================= интерфейс =================
+
+        struct HudRefs
+        {
+            public RectTransform frame;
+            public CanvasGroup frameGroup;
+            public RawImage glass;
+        }
+
+        static HudRefs CreateHud(Transform parent, Interactor interactor, PlateInventory inventory, FirstPersonController fpc, Material plateMat)
         {
             var canvasGo = new GameObject("HUD", typeof(Canvas), typeof(CanvasScaler));
             canvasGo.transform.SetParent(parent, false);
@@ -394,13 +445,31 @@ namespace Jam.EditorTools
             var scaler = canvasGo.GetComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920, 1080);
+            scaler.matchWidthOrHeight = 1f;
 
+            // --- ручная обскура: рамка с матовым стеклом ---
+            var frameGo = new GameObject("ObscuraFrame", typeof(RectTransform), typeof(CanvasGroup));
+            frameGo.transform.SetParent(canvasGo.transform, false);
+            var frame = (RectTransform)frameGo.transform;
+            frame.anchorMin = frame.anchorMax = frame.pivot = new Vector2(0.5f, 0.5f);
+            frame.sizeDelta = new Vector2(1000f, 780f);
+            var frameGroup = frameGo.GetComponent<CanvasGroup>();
+            frameGroup.blocksRaycasts = false;
+            frameGroup.interactable = false;
+            var border = UiChild<Image>("Border", frame, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(1000f, 780f));
+            border.color = new Color(0.09f, 0.065f, 0.05f, 1f);
+            border.raycastTarget = false;
+            var glass = UiChild<RawImage>("Glass", frame, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(940f, 705f));
+            glass.raycastTarget = false;
+
+            // --- прицел и подсказка ---
             var dot = UiChild<Image>("Crosshair", canvasGo.transform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(6, 6));
             dot.color = new Color(0.9f, 0.85f, 0.75f, 0.7f);
             dot.raycastTarget = false;
 
             var prompt = UiChild<Text>("InteractionPrompt", canvasGo.transform, new Vector2(0.5f, 0.5f), new Vector2(0, -60), new Vector2(800, 60));
-            prompt.font = AssetDatabase.LoadAssetAtPath<Font>("Assets/Art/Fonts/SpecialElite-Regular.ttf") ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            var font = AssetDatabase.LoadAssetAtPath<Font>("Assets/Art/Fonts/SpecialElite-Regular.ttf");
+            prompt.font = font ? font : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             prompt.fontSize = 30;
             prompt.alignment = TextAnchor.MiddleCenter;
             prompt.raycastTarget = false;
@@ -408,26 +477,75 @@ namespace Jam.EditorTools
             promptUi.interactor = interactor;
             promptUi.label = prompt;
 
-            var plateView = UiChild<RawImage>("PlateView", canvasGo.transform, new Vector2(1f, 0f), new Vector2(-40, 40), new Vector2(480, 360));
-            plateView.rectTransform.pivot = new Vector2(1f, 0f);
-            plateView.raycastTarget = false;
+            // --- пластина на весь экран ---
+            var viewerGo = new GameObject("PlateViewer", typeof(RectTransform), typeof(CanvasGroup));
+            viewerGo.transform.SetParent(canvasGo.transform, false);
+            Stretch((RectTransform)viewerGo.transform);
+            var backdrop = new GameObject("Backdrop", typeof(RectTransform), typeof(Image));
+            backdrop.transform.SetParent(viewerGo.transform, false);
+            Stretch((RectTransform)backdrop.transform);
+            var bd = backdrop.GetComponent<Image>();
+            bd.color = new Color(0f, 0f, 0f, 0.92f);
+            bd.raycastTarget = false;
+            var plateImg = UiChild<RawImage>("Plate", viewerGo.transform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(1024f, 768f));
+            plateImg.raycastTarget = false;
+
+            var viewer = viewerGo.AddComponent<PlateViewer>();
+            viewer.group = viewerGo.GetComponent<CanvasGroup>();
+            viewer.image = plateImg;
+            viewer.plateMaterial = plateMat;
+            viewer.player = fpc;
+            viewer.interactor = interactor;
+
             var hud = canvasGo.AddComponent<PlateHUD>();
             hud.inventory = inventory;
-            hud.view = plateView;
-            hud.plateMaterial = AssetDatabase.LoadAssetAtPath<Material>(PlateMatPath);
-            if (!hud.plateMaterial)
-            {
-                var sh = Shader.Find("Jam/PlateDisplay");
-                if (sh)
-                {
-                    var m = new Material(sh);
-                    AssetDatabase.CreateAsset(m, MatFolder + "/M_PlateDisplay.mat");
-                    hud.plateMaterial = m;
-                }
-            }
+            hud.viewer = viewer;
+
+            return new HudRefs { frame = frame, frameGroup = frameGroup, glass = glass };
         }
 
         // ================= helpers =================
+
+        static Vector3 Flat(Vector3 v)
+        {
+            v.y = 0f;
+            return v.sqrMagnitude < 1e-4f ? Vector3.forward : v.normalized;
+        }
+
+        static float FloorY(Vector3 from, float fallback)
+        {
+            Physics.SyncTransforms();
+            return Physics.Raycast(from, Vector3.down, out var hit, 4f, MaskSolid, QueryTriggerInteraction.Ignore) ? hit.point.y : fallback;
+        }
+
+        static Transform FindDeep(Transform t, string name)
+        {
+            foreach (var c in t.GetComponentsInChildren<Transform>(true))
+                if (c.name == name) return c;
+            return null;
+        }
+
+        static Bounds RenderBounds(GameObject go)
+        {
+            var rs = go.GetComponentsInChildren<Renderer>();
+            if (rs.Length == 0) return new Bounds(go.transform.position, Vector3.zero);
+            var b = rs[0].bounds;
+            foreach (var r in rs) b.Encapsulate(r.bounds);
+            return b;
+        }
+
+        static IEnumerable<Vector3> Corners(Bounds b)
+        {
+            for (int i = 0; i < 8; i++)
+                yield return b.center + Vector3.Scale(b.extents, new Vector3((i & 1) == 0 ? -1 : 1, (i & 2) == 0 ? -1 : 1, (i & 4) == 0 ? -1 : 1));
+        }
+
+        static void Stretch(RectTransform rt)
+        {
+            rt.anchorMin = Vector2.zero;
+            rt.anchorMax = Vector2.one;
+            rt.offsetMin = rt.offsetMax = Vector2.zero;
+        }
 
         static T UiChild<T>(string name, Transform parent, Vector2 anchor, Vector2 pos, Vector2 size) where T : Graphic
         {
@@ -471,7 +589,8 @@ namespace Jam.EditorTools
             var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
             if (!mat)
             {
-                var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+                var shader = Shader.Find("Universal Render Pipeline/Lit");
+                if (!shader) shader = Shader.Find("Standard");
                 mat = new Material(shader);
                 AssetDatabase.CreateAsset(mat, path);
             }
@@ -479,6 +598,40 @@ namespace Jam.EditorTools
             if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.1f);
             mat.color = color;
             EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        static Material SaveBillboardMat(string name, Color color)
+        {
+            string path = $"{MatFolder}/{name}.mat";
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (!mat)
+            {
+                var shader = Shader.Find("Jam/Billboard");
+                if (!shader)
+                {
+                    Debug.LogError("[Jam] Не найден шейдер Jam/Billboard.");
+                    shader = Shader.Find("Universal Render Pipeline/Unlit");
+                }
+                mat = new Material(shader);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        static Material LoadOrCreatePlateMat()
+        {
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(PlateMatPath);
+            if (mat) return mat;
+            string path = MatFolder + "/M_PlateDisplay.mat";
+            mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat) return mat;
+            var sh = Shader.Find("Jam/PlateDisplay");
+            if (!sh) return null;
+            mat = new Material(sh);
+            AssetDatabase.CreateAsset(mat, path);
             return mat;
         }
 
