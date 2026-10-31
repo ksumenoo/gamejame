@@ -14,7 +14,7 @@ namespace Jam.Player
     {
         public Transform anchor;
         public MargaretAI margaret;
-        public Vector3 localOffset = new(0.28f, -0.3f, 0.45f);
+        public Vector3 localOffset = new(0.3f, -0.38f, 0.42f);
         public float baseIntensity = 1.4f;
         public float range = 6f;
         public Color color = new(1f, 0.72f, 0.42f);
@@ -30,6 +30,8 @@ namespace Jam.Player
         public float compassRange = 18f;
         [Tooltip("Наклон на самой границе компаса, градусы. Ближе — сильнее, до leanAngle.")]
         public float compassMinLean = 18f;
+        [Tooltip("Свеча сама загорается снова, когда Маргарет дальше warnDistance столько секунд. Искать канделябр не нужно.")]
+        public float autoRelightDelay = 3.5f;
         [Tooltip("Мысль, когда свеча погасла впервые.")]
         public string thoughtOut = "Огонь клонился к ней… и умер. Нужен другой огонь.";
 
@@ -83,13 +85,26 @@ namespace Jam.Player
             // огонёк дышит вместе со светом
             if (flameVisual && IsLit)
                 flameVisual.transform.localScale = _flameScale * Mathf.Clamp(_light.intensity / baseIntensity, 0.35f, 1.25f);
-            if (flameVisual && IsLit) LeanTowardMargaret();
+            // огонёк больше не клонится к Маргарет: свеча — просто свет и тихий знак опасности (гаснет рядом с ней),
+            // а не механика, за которой надо следить
+
         }
+
+        float _calmFor;
 
         void Update()
         {
             if (IsLit && margaret && margaret.DistanceToPlayer < extinguishDistance)
                 Extinguish();
+
+            // она ушла — огонёк возвращается сам: свеча показывает опасность, а не превращается в задачу
+            if (!IsLit)
+            {
+                bool calm = !margaret || !margaret.isActiveAndEnabled || margaret.DistanceToPlayer > warnDistance;
+                _calmFor = calm ? _calmFor + Time.deltaTime : 0f;
+                if (_calmFor >= autoRelightDelay) { _calmFor = 0f; Relight(); }
+            }
+            else _calmFor = 0f;
         }
 
         /// <summary>Огонёк тянется к Маргарет: чем ближе она, тем сильнее — так видно, откуда она идёт.</summary>
@@ -129,7 +144,6 @@ namespace Jam.Player
                   .OnComplete(() => _light.DOIntensity(0f, 0.25f).SetLink(gameObject));
             if (flameVisual) flameVisual.SetActive(false);
             if (audioSource && extinguishClip) audioSource.PlayOneShot(extinguishClip);
-            if (_outCount++ == 0) Thoughts.Once("m_candle_out", thoughtOut);
             Extinguished?.Invoke(this);
         }
 

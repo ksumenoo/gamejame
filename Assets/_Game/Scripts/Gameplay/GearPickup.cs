@@ -34,6 +34,13 @@ namespace Jam.Gameplay
         FlashCounterUI _flashUi;
         FirstPersonController _player;
         Candelabra _scareCandle;
+        CameraStation _zeroStation;
+        Light _zeroGlow;
+        bool _zeroShot;
+        float _nextBeacon;
+
+        [Tooltip("Пока не снята нулевая сцена, её штатив время от времени щёлкает заслонкой — зовёт к себе, с.")]
+        public float beaconPeriod = 7f;
         bool _scared;
         Vector3? _startPos;
 
@@ -41,9 +48,19 @@ namespace Jam.Gameplay
         public bool CanInteract(Interactor who) => Waiting;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        static void ResetStatics() { Waiting = false; Taken = null; }
+        internal static void ResetStatics() { Waiting = false; Taken = null; }
 
+        // AfterSceneLoad срабатывает только для первой сцены, а игра может начаться из меню — ставимся на каждую загрузку
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        static void Init()
+        {
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnSceneLoaded;
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneLoaded;
+            Install();
+        }
+
+        static void OnSceneLoaded(UnityEngine.SceneManagement.Scene s, UnityEngine.SceneManagement.LoadSceneMode m) => Install();
+
         static void Install()
         {
             if (!Enabled || FindAnyObjectByType<GearPickup>()) return;
@@ -125,11 +142,34 @@ namespace Jam.Gameplay
                 if (st && st.obscura) CreateSceneZero(st.obscura.transform, figurePos, room.transform.parent);
             }
 
+            // штатив Маргарет нельзя унести, пока с него не сделан снимок: сначала — пример, потом — своя камера
+            if (_portable)
+            {
+                _portable.PickupLocked = true;
+                _zeroStation = _portable.GetComponent<CameraStation>();
+                if (_zeroStation)
+                {
+                    _zeroStation.PlateDone += OnZeroPlateDone;
+                    // тёплый свет у штатива: его видно из коридора, он тихо дышит, пока снимок не сделан
+                    var lg = new GameObject("ZeroGlow");
+                    lg.transform.SetParent(_zeroStation.transform, false);
+                    lg.transform.position = (_zeroStation.obscura ? _zeroStation.obscura.transform.position : _zeroStation.transform.position + Vector3.up * 1.3f) + Vector3.up * 0.35f;
+                    _zeroGlow = lg.AddComponent<Light>();
+                    _zeroGlow.type = LightType.Point;
+                    _zeroGlow.color = new Color(1f, 0.82f, 0.6f);
+                    _zeroGlow.range = 3.2f;
+                    _zeroGlow.intensity = 0f;
+                    _zeroGlow.shadows = LightShadows.None;
+                    _zeroGlow.enabled = false; // включится, когда игрок возьмёт обскуру
+                }
+            }
+
             // до нулевой проявки в обскуре пусто: ни остальных сцен, ни Маргарет — учимся на одной
             HideUntilFirstPlate();
 
             SetGear(false);
             Waiting = true;
+            DarkenHouse(room);
             if (_player) _player.ForceSneak = true;
         }
 
@@ -178,8 +218,13 @@ namespace Jam.Gameplay
                 _ghostBit = 1 << ghost;
                 _hand.cullingMask &= ~_ghostBit;
             }
+            // следы штатива тоже появляются только после первой пластины — до неё нечему их объяснить
+            foreach (var t in FindObjectsByType<Transform>(FindObjectsSortMode.None))
+                if (t.name.StartsWith("TripodMarks_") && t.gameObject.activeSelf) { t.gameObject.SetActive(false); _marks.Add(t.gameObject); }
             if (_story) _story.SceneDeveloped += OnSceneDeveloped;
         }
+
+        readonly List<GameObject> _marks = new();
 
         void OnSceneDeveloped(PastScene s)
         {
@@ -189,6 +234,8 @@ namespace Jam.Gameplay
             foreach (var h in _held) if (h && h.Current == PastScene.State.Hidden) h.SetState(PastScene.State.Visible);
             _held.Clear();
             if (_hand && _ghostBit != 0) _hand.cullingMask |= _ghostBit;
+            foreach (var m in _marks) if (m) m.SetActive(true);
+            _marks.Clear();
         }
 
         /// <summary>Сцена 0 из готовой фигуры (мать из сцены 2): та же логика, что у остальных шести.</summary>
@@ -274,6 +321,7 @@ namespace Jam.Gameplay
             JamAudio.Play("shutter_close", transform.position);
             // бег открывается именно здесь — игрок сразу понимает, что дальше придётся от кого-то бегать
             Thoughts.Say("k_run", null, "Shift — бег");
+            WakeHouse();
             Taken?.Invoke();
             // сам объект остаётся (ждёт проявки нулевой сцены), исчезает только копия обскуры на столе
             var col = GetComponent<Collider>();
@@ -281,9 +329,92 @@ namespace Jam.Gameplay
             transform.DOScale(0f, 0.25f).SetLink(gameObject);
         }
 
+        readonly List<Light> _darkLights = new();
+        readonly List<GameObject> _darkDots = new();
+
+        /// <summary>
+        /// До обскуры в доме темно: горит только проявочная (красный свет зовёт в конец коридора) и свеча в руке.
+        /// Ходить больше некуда — соблазна разбрестись по комнатам нет.
+        /// </summary>
+        void DarkenHouse(Darkroom room)
+        {
+            bool InRoom(Vector3 p) => room && room.roomBounds.size != Vector3.zero && room.roomBounds.Contains(p);
+            foreach (var l in FindObjectsByType<Light>(FindObjectsSortMode.None))
+            {
+                if (!l || !l.enabled) continue;
+                if (room && (l == room.redLight || l == room.roomLight)) continue;
+                if (InRoom(l.transform.position)) continue;
+                if (l.GetComponentInParent<FirstPersonController>()) continue; // свеча в руке
+                if (l == _zeroGlow) continue;
+                l.enabled = false;
+                _darkLights.Add(l);
+            }
+            foreach (var t in FindObjectsByType<Transform>(FindObjectsSortMode.None))
+            {
+                if (t.name != "FlameDot" || !t.gameObject.activeSelf || InRoom(t.position)) continue;
+                t.gameObject.SetActive(false);
+                _darkDots.Add(t.gameObject);
+            }
+        }
+
+        /// <summary>Обскура взята — дом «просыпается»: огни зажигаются один за другим.</summary>
+        void WakeHouse()
+        {
+            for (int i = 0; i < _darkLights.Count; i++)
+            {
+                var l = _darkLights[i];
+                if (!l) continue;
+                float target = l.intensity;
+                DOVirtual.DelayedCall(0.6f + i * 0.12f, () =>
+                {
+                    if (!l) return;
+                    l.intensity = 0f;
+                    l.enabled = true;
+                    l.DOIntensity(target, 0.8f).SetLink(l.gameObject);
+                }).SetLink(gameObject);
+            }
+            foreach (var d in _darkDots) if (d) d.SetActive(true);
+            _darkLights.Clear();
+            _darkDots.Clear();
+        }
+
+        void OnZeroPlateDone(CameraStation st)
+        {
+            _zeroShot = true;
+            if (_portable) _portable.PickupLocked = false;
+            if (_zeroGlow) _zeroGlow.DOIntensity(0f, 1.2f).SetLink(_zeroGlow.gameObject).OnComplete(() => { if (_zeroGlow) Destroy(_zeroGlow.gameObject); });
+            if (_zeroStation) _zeroStation.PlateDone -= OnZeroPlateDone;
+        }
+
+        void OnDestroy()
+        {
+            if (_zeroStation) _zeroStation.PlateDone -= OnZeroPlateDone;
+        }
+
         void Update()
         {
-            // по пути к проявочной первый канделябр рядом с игроком гаснет сам — дом не пуст
+            // Без слов ведём игрока звуком: щелчок затвора всегда значит «тебе туда».
+            // Сначала щёлкает обскура на верстаке проявочной, потом — штатив в прихожей, пока не снят нулевой кадр.
+            if (_player && !_player.InputLocked && Time.time >= _nextBeacon)
+            {
+                Vector3? at = null;
+                if (Waiting) at = transform.position + Vector3.up * 0.2f;
+                else if (!_zeroShot && _zeroStation) at = _zeroStation.transform.position + Vector3.up * 1.3f;
+                if (at.HasValue)
+                {
+                    _nextBeacon = Time.time + beaconPeriod;
+                    if ((at.Value - _player.transform.position).sqrMagnitude > 3.5f * 3.5f)
+                        JamAudio.Play("shutter_close", at.Value);
+                }
+            }
+            if (_zeroGlow && !_zeroShot && !Waiting)
+            {
+                if (!_zeroGlow.enabled) _zeroGlow.enabled = true;
+                _zeroGlow.intensity = 0.9f + 0.5f * Mathf.Sin(Time.time * 2.4f);
+            }
+
+            // по пути к проявочной канделябр рядом с игроком вздрагивает и шепчет — дом не пуст.
+            // Не гаснет: погасший канделябр игрок принимает за задачу «зажги свечи».
             if (!Waiting || _scared || !_player || _player.InputLocked) return;
             Vector3 me = _player.transform.position;
             if (_startPos == null) _startPos = me;
@@ -298,7 +429,20 @@ namespace Jam.Gameplay
                 DOVirtual.DelayedCall(0.8f, () =>
                 {
                     if (!_scareCandle) return;
-                    _scareCandle.Extinguish();
+                    if (_scareCandle.flame)
+                    {
+                        var cand = _scareCandle;
+                        var f = cand.flame;
+                        float i0 = cand.baseIntensity;
+                        f.DOKill();
+                        DOTween.Sequence().SetLink(f.gameObject)
+                            .Append(f.DOIntensity(i0 * 0.1f, 0.12f))
+                            .Append(f.DOIntensity(i0 * 0.8f, 0.1f))
+                            .Append(f.DOIntensity(i0 * 0.05f, 0.25f))
+                            .AppendInterval(0.35f)
+                            .Append(f.DOIntensity(i0, 0.6f))
+                            .OnComplete(cand.Flicker); // дальше горит и дрожит как обычно
+                    }
                     JamAudio.Play("margaret_whisper", _scareCandle.transform.position + Vector3.up);
                 }).SetLink(gameObject);
                 break;

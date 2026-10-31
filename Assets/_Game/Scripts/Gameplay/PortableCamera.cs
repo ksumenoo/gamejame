@@ -46,6 +46,9 @@ namespace Jam.Gameplay
 
         public string CarryHint => IsCarried ? "F — поставить камеру" : "";
 
+        /// <summary>Нулевая сцена: штатив Маргарет нельзя унести, пока с него не снят снимок.</summary>
+        public bool PickupLocked { get; set; }
+
         void Awake()
         {
             _station = GetComponent<CameraStation>();
@@ -184,7 +187,7 @@ namespace Jam.Gameplay
         [Button("Взять")]
         public bool TryPickUp()
         {
-            if (IsCarried) return false;
+            if (IsCarried || PickupLocked) return false;
             if (_station.Current == CameraStation.State.Exposing) { Hint("Идёт выдержка."); return false; }
             if (_station.Current == CameraStation.State.PlateReady)
             {

@@ -21,7 +21,7 @@ namespace Jam.Gameplay
         static AudioSource s_voice;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        static void ResetStatics()
+        internal static void ResetStatics()
         {
             s_said.Clear();
             s_voice = null;

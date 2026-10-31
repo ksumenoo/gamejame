@@ -81,7 +81,9 @@ namespace Jam.Player
         void OnEnable()
         {
             _move.Enable(); _look.Enable(); _run.Enable(); _sneak.Enable();
-            LockCursor(true);
+#if !UNITY_WEBGL || UNITY_EDITOR
+            LockCursor(true); // в браузере без клика игрока захватить курсор нельзя — там захват по первому клику
+#endif
         }
 
         void OnDisable()
@@ -193,7 +195,8 @@ namespace Jam.Player
             var kb = Keyboard.current;
             var mouse = Mouse.current;
             if (kb != null && kb.escapeKey.wasPressedThisFrame) LockCursor(false);
-            else if (mouse != null && mouse.leftButton.wasPressedThisFrame && Cursor.lockState != CursorLockMode.Locked && !InputLocked)
+            // в браузере захват курсора — только по клику в уже активной вкладке, иначе Unity падает с «document is not focused»
+            else if (mouse != null && mouse.leftButton.wasPressedThisFrame && Cursor.lockState != CursorLockMode.Locked && !InputLocked && Application.isFocused)
                 LockCursor(true);
         }
 

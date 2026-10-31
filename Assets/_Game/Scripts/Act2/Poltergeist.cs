@@ -42,7 +42,7 @@ namespace Jam.Gameplay
         GameObject _obstacle;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        static void ResetStatics() => All.Clear();
+        internal static void ResetStatics() => All.Clear();
 
         /// <summary>Имя меша → ключ вещи («F_shkafBed») или null. Его же использует сборщик уровня, чтобы не батчить эти меши.</summary>
         public static string GroupKey(string meshName)
@@ -190,32 +190,57 @@ namespace Jam.Gameplay
             return b;
         }
 
-        /// <summary>Куда падать: прочь от ближайшей стены (шкаф стоит спиной к ней).</summary>
-        Vector3 FallDirection(Bounds b)
+        /// <summary>
+        /// Куда и насколько падать. Пробуем 4 направления (по осям): из нижнего ребра на разной высоте пускаем лучи
+        /// и смотрим, во что упрётся вещь при повороте — стол, стена, другая мебель. Берём направление, где можно
+        /// упасть дальше всего; если впереди стол — вещь не проходит сквозь него, а заваливается на его край.
+        /// </summary>
+        (Vector3 dir, float angle) FallPlan(Bounds b)
         {
-            Vector3 c = new(b.center.x, b.min.y + 1f, b.center.z);
-            Vector3 best = Vector3.zero;
-            float bestD = float.MaxValue;
-            for (int i = 0; i < 8; i++)
+            float H = Mathf.Max(0.3f, b.size.y);
+            Vector3 bestDir = Vector3.forward;
+            float bestAngle = -1f;
+            Vector3[] dirs = { Vector3.forward, Vector3.back, Vector3.right, Vector3.left };
+            foreach (var d in dirs)
             {
-                Vector3 d = Quaternion.Euler(0f, i * 45f, 0f) * Vector3.forward;
-                foreach (var h in Physics.RaycastAll(c, d, 2f, ~0, QueryTriggerInteraction.Ignore))
+                float half = Mathf.Abs(b.extents.x * d.x) + Mathf.Abs(b.extents.z * d.z);
+                Vector3 side = Vector3.Cross(Vector3.up, d);
+                float width = Mathf.Abs(b.extents.x * side.x) + Mathf.Abs(b.extents.z * side.z);
+                Vector3 edge = new Vector3(b.center.x, b.min.y, b.center.z) + d * half;
+                float allowed = 90f;
+                for (float y = 0.12f; y <= H; y += 0.15f)
+                for (int k = -1; k <= 1; k++)
                 {
-                    if (h.transform.IsChildOf(transform) || h.collider.isTrigger) continue;
-                    if (h.collider.name != "Walls") continue;
-                    if (h.distance < bestD) { bestD = h.distance; best = d; }
+                    Vector3 o = edge + Vector3.up * y + side * (k * width * 0.8f) - d * 0.03f;
+                    // старт уже внутри чего-то (стул задвинут под столешницу) — падать сюда нельзя
+                    if (Blocked(Physics.OverlapSphere(o, 0.03f, ~0, QueryTriggerInteraction.Ignore))) { allowed = Mathf.Min(allowed, 0f); continue; }
+                    foreach (var h in Physics.RaycastAll(o, d, H, ~0, QueryTriggerInteraction.Ignore))
+                    {
+                        if (IsMine(h.collider) || h.normal.y > 0.7f) continue;
+                        if (Mathf.Sqrt(h.distance * h.distance + y * y) > H) continue; // так далеко вещь не достаёт
+                        allowed = Mathf.Min(allowed, Mathf.Atan2(h.distance, y) * Mathf.Rad2Deg);
+                    }
                 }
+                // чуть предпочитаем падение от стены (шкаф стоит к ней спиной) — при равных условиях
+                float score = allowed + Random.Range(0f, 2f);
+                if (score > bestAngle) { bestAngle = score; bestDir = d; }
             }
-            if (best == Vector3.zero) best = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f) * Vector3.forward;
-            // к осям стены — без косого падения
-            return Mathf.Abs(best.x) > Mathf.Abs(best.z) ? new Vector3(-Mathf.Sign(best.x), 0f, 0f) : new Vector3(0f, 0f, -Mathf.Sign(best.z));
+            return (bestDir, Mathf.Clamp(bestAngle - 3f, 15f, 90f));
+        }
+
+        bool IsMine(Collider c) => c && (c.transform.IsChildOf(transform) || c.isTrigger);
+
+        bool Blocked(Collider[] cols)
+        {
+            foreach (var c in cols) if (!IsMine(c)) return true;
+            return false;
         }
 
         /// <summary>Раскачался — и рухнул плашмя, поворачиваясь вокруг нижнего ребра, с отскоком в конце.</summary>
         void TipOver(float fallTime)
         {
             var b = PartsBounds();
-            Vector3 dir = FallDirection(b);
+            var (dir, fall) = FallPlan(b);
             float half = Mathf.Abs(b.extents.x * dir.x) + Mathf.Abs(b.extents.z * dir.z);
             Vector3 edge = new Vector3(b.center.x, b.min.y, b.center.z) + dir * half;
             _pivot = new GameObject(name + "_Pivot").transform;
@@ -233,7 +258,7 @@ namespace Jam.Gameplay
             seq.Append(_pivot.DORotateQuaternion(Tilt(-lean * 0.35f), 0.22f).SetEase(Ease.InOutQuad));
             seq.AppendCallback(() => Play("prop_creak", "door_close"));
             // падение: ускоряется, как под тяжестью
-            seq.Append(_pivot.DORotateQuaternion(Tilt(90f), fallTime).SetEase(Ease.InCubic));
+            seq.Append(_pivot.DORotateQuaternion(Tilt(fall), fallTime * Mathf.Lerp(0.6f, 1f, fall / 90f)).SetEase(Ease.InCubic));
             seq.AppendCallback(() =>
             {
                 Play(kind == Kind.Wardrobe ? "prop_heavy" : "prop_fall", "door_slam");
@@ -241,10 +266,10 @@ namespace Jam.Gameplay
                 Startle();
             });
             // удар: подпрыгнул и улёгся
-            seq.Append(_pivot.DORotateQuaternion(Tilt(84f), 0.09f).SetEase(Ease.OutQuad));
-            seq.Append(_pivot.DORotateQuaternion(Tilt(90f), 0.12f).SetEase(Ease.InQuad));
-            seq.Append(_pivot.DORotateQuaternion(Tilt(88.5f), 0.06f));
-            seq.Append(_pivot.DORotateQuaternion(Tilt(90f), 0.06f));
+            seq.Append(_pivot.DORotateQuaternion(Tilt(fall - 6f), 0.09f).SetEase(Ease.OutQuad));
+            seq.Append(_pivot.DORotateQuaternion(Tilt(fall), 0.12f).SetEase(Ease.InQuad));
+            seq.Append(_pivot.DORotateQuaternion(Tilt(fall - 1.5f), 0.06f));
+            seq.Append(_pivot.DORotateQuaternion(Tilt(fall), 0.06f));
             seq.AppendCallback(CarveObstacle);
         }
 
@@ -277,13 +302,23 @@ namespace Jam.Gameplay
                 if (outDir.sqrMagnitude < 1e-3f) outDir = Random.insideUnitSphere;
                 outDir.y = 0f;
                 outDir = outDir.normalized;
-                Vector3 land = t.position + outDir * Random.Range(0.35f, 0.9f);
-                land.y = FloorUnder(land, t.position.y);
+                // на чём стоит (стол) — вылетаем за его край, а не сквозь столешницу
+                float exit = 0f;
+                if (Physics.Raycast(from + Vector3.up * 0.05f, Vector3.down, out var sup, 0.6f, ~0, QueryTriggerInteraction.Ignore) && !IsMine(sup.collider))
+                {
+                    var sb = sup.collider.bounds;
+                    sb.Expand(new Vector3(0.25f, 0f, 0.25f));
+                    while (exit < 2.5f && sb.Contains(new Vector3(from.x, sb.center.y, from.z) + outDir * exit)) exit += 0.05f;
+                }
+                Vector3 landC = from + outDir * (exit + Random.Range(0.15f, 0.4f));
+                float bottom = r ? r.bounds.min.y : t.position.y;
+                float floorY = FloorUnder(landC, bottom);
+                Vector3 land = t.position + new Vector3(landC.x - from.x, floorY - bottom, landC.z - from.z);
                 float delay = Random.Range(0f, 0.18f);
                 float time = Random.Range(0.42f, 0.6f);
                 lastLand = Mathf.Max(lastLand, delay + time);
                 var s = DOTween.Sequence().SetLink(gameObject).SetDelay(delay);
-                s.Append(t.DOJump(land, 0.25f, 1, time).SetEase(Ease.Linear));
+                s.Append(t.DOJump(land, 0.5f, 1, time).SetEase(Ease.Linear)); // повыше дугу — перелетает край столешницы
                 s.Join(t.DORotate(new Vector3(Random.Range(-200f, 200f), Random.Range(-180f, 180f), Random.Range(-200f, 200f)), time, RotateMode.WorldAxisAdd));
                 s.AppendCallback(() => Shatter(t, r));
             }

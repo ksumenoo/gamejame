@@ -29,17 +29,20 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _Overlay:
-        m_Texture: {fileID: 0}
+        m_Texture: {fileID: 2800000, guid: 2218d96cbc0742547a38fa7b51d4dfd4, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+    - _Brightness: 1
     - _ColorMask: 15
     - _Contrast: 1.4
     - _Develop: 1
     - _Flip: 1
     - _Grain: 0.08
+    - _LiveGrain: 0
     - _OverlayStrength: 0.6
+    - _RedKeep: 1
     - _Stencil: 0
     - _StencilComp: 8
     - _StencilOp: 0
@@ -49,5 +52,6 @@ Material:
     m_Colors:
     - _DarkTone: {r: 0.06999998, g: 0.059999965, b: 0.049999982, a: 1}
     - _LightTone: {r: 0.86, g: 0.8, b: 0.68, a: 1}
+    - _RedColor: {r: 0.62, g: 0.06999998, b: 0.049999982, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

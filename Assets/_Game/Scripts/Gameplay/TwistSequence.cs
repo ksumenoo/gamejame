@@ -123,6 +123,8 @@ namespace Jam.Gameplay
                 await UniTask.Delay(TimeSpan.FromSeconds(upsideDownSeconds), cancellationToken: ct);
                 Lock(true);
                 if (credits) await credits.ShowAsync();
+                await UniTask.Delay(TimeSpan.FromSeconds(9), cancellationToken: ct);
+                if (GameSession.HasMenu) GameSession.ReturnToMenu();
             }
             catch (OperationCanceledException) { }
         }

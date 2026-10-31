@@ -45,7 +45,7 @@ namespace Jam.Gameplay
         bool _dying;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        static void ResetStatics()
+        internal static void ResetStatics()
         {
             GhostMode = false;
             s_ghostTaught = false;
@@ -75,6 +75,25 @@ namespace Jam.Gameplay
             return !anySource;
         }
 
+        /// <summary>
+        /// Рядом (в той же комнате, ближе lightRadius) стоит камера на штативе — свет этого канделябра влияет на выдержку.
+        /// Только тогда он предлагает себя зажечь: иначе игрок решает, что зажигать свечи по дому — это задача.
+        /// </summary>
+        bool NeededForShot()
+        {
+            if (!flame) return false;
+            Vector3 p = flame.transform.position;
+            foreach (var st in FindObjectsByType<CameraStation>(FindObjectsSortMode.None))
+            {
+                if (!st || !st.obscura) continue;
+                var pc = st.GetComponent<PortableCamera>();
+                if (pc && pc.IsCarried) continue;
+                Vector3 o = st.obscura.transform.position;
+                if ((o - p).sqrMagnitude <= st.lightRadius * st.lightRadius && SameRoom(o, p)) return true;
+            }
+            return false;
+        }
+
         /// <summary>Между точками нет стен (коллайдер «Walls»).</summary>
         public static bool SameRoom(Vector3 a, Vector3 b)
         {
@@ -92,7 +111,7 @@ namespace Jam.Gameplay
         {
             get
             {
-                if (!GhostMode) return IsLit ? "Зажечь свечу" : "Зажечь канделябр";
+                if (!GhostMode) return IsLit ? "" : "Зажечь канделябр";
                 if (!IsLit || !HasFlame) return "";
                 return _hold > 0f ? $"Гаснет… {Mathf.RoundToInt(_hold / holdSeconds * 100f)}%" : "Погасить свечу (держать E)";
             }
@@ -103,8 +122,8 @@ namespace Jam.Gameplay
             if (GhostMode) return IsLit && HasFlame && !_holder;
             var c = who ? who.GetComponentInParent<HandCandle>() : null;
             if (!c) return false;
-            if (!IsLit) return c.IsLit && HasFlame; // зажечь канделябр от свечи
-            return !c.IsLit;                        // зажечь свечу от канделябра
+            // зажечь канделябр — только когда это нужно для снимка; свеча в руке загорается сама
+            return !IsLit && c.IsLit && HasFlame && NeededForShot();
         }
 
         public void Interact(Interactor who)
@@ -226,7 +245,7 @@ namespace Jam.Gameplay
                 if (t.name == "FlameDot") t.gameObject.SetActive(on);
         }
 
-        void Flicker()
+        internal void Flicker()
         {
             if (!flame || !IsLit) return;
             flame.DOIntensity(baseIntensity * UnityEngine.Random.Range(0.8f, 1.1f), UnityEngine.Random.Range(0.08f, 0.25f))

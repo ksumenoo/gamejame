@@ -19,8 +19,8 @@ namespace Jam.Gameplay
 
         public ObscuraCamera obscura;
         [Min(0.5f)] public float exposureSeconds = 6f;
-        [Tooltip("Выдержку надо держать E. Отпустил — пластина засвечена.")]
-        public bool holdToExpose = true;
+        [Tooltip("Выдержку надо держать E. Отпустил — пластина засвечена. Выключено: E один раз, и стоять рядом — отошёл дальше holdRadius, пластина засвечена.")]
+        public bool holdToExpose = false;
         [Tooltip("Дальше этого от камеры отойти нельзя — пластина засвечена, м.")]
         public float holdRadius = 1.8f;
 
@@ -56,6 +56,8 @@ namespace Jam.Gameplay
         public bool HasPlate => _plate != null;
         /// <summary>Идёт выдержка, а свет в комнате погас — пластине нужно больше времени.</summary>
         [ShowNativeProperty] public bool InDark { get; private set; }
+        /// <summary>Идёт выдержка: насколько игрок отошёл от камеры, 0 — рядом, 1 — сейчас сорвётся.</summary>
+        public float LeaveFactor { get; private set; }
 
         public event Action<CameraStation> ExposureBegan;
         /// <summary>Выдержку сорвали — пластина засвечена.</summary>
@@ -70,7 +72,7 @@ namespace Jam.Gameplay
 
         public string Prompt => Current switch
         {
-            State.Idle => (holdToExpose ? "Открыть заслонку (держать E)" : "Открыть заслонку") + (GetComponent<PortableCamera>() ? "   ·   F — забрать" : ""),
+            State.Idle => (holdToExpose ? "Открыть заслонку (держать E)" : "Открыть заслонку") + (GetComponent<PortableCamera>() is { PickupLocked: false } ? "   ·   F — забрать" : ""),
             State.Exposing => "", // ход выдержки — полоской внизу (ExposureHUD), без слов
             State.PlateReady => "Забрать пластину",
             _ => "",
@@ -124,10 +126,11 @@ namespace Jam.Gameplay
             }
             else InDark = false;
 
-            if (Current != State.Exposing || !_holder || !holdToExpose) return;
+            if (Current != State.Exposing || !_holder) { LeaveFactor = 0f; return; }
             Vector3 d = _holder.transform.position - transform.position;
             d.y = 0f;
-            if (!_holder.UseHeld || d.magnitude > holdRadius) Ruin();
+            LeaveFactor = Mathf.Clamp01(d.magnitude / holdRadius);
+            if (d.magnitude > holdRadius || (holdToExpose && !_holder.UseHeld)) Ruin();
         }
 
         /// <summary>Сорвать выдержку (отпустили E, отошли, Маргарет схватила).</summary>

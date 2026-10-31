@@ -46,7 +46,7 @@ namespace Jam.Gameplay
         [Tooltip("После проявки она уходит в дальний конец дома и столько секунд никого не замечает.")]
         public float graceAfterDevelop = 12f;
         [Tooltip("Сколько секунд она ещё стоит после конца выдержки, прежде чем очнуться.")]
-        public float wakeDelay = 1.5f;
+        public float wakeDelay = 3f;
         [Tooltip("После посмертного портрета (выдержка у стойки дошла до конца) она уходит и столько секунд никого не трогает — успеть проявить.")]
         public float graceAfterPortrait = 25f;
         [Tooltip("Проявочная — безопасная комната: внутри игрока не видит и не слышит.")]
@@ -250,9 +250,12 @@ namespace Jam.Gameplay
                         if (look.sqrMagnitude > 1e-4f)
                             transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(look), Time.deltaTime * 4f);
                         if (_posingFor.IsExposing) break;
-                        _posingFor = null;           // выдержка кончилась — очнулась
+                        _posingFor = null;           // выдержка кончилась — очнулась, но не сразу: время забрать пластину и уйти
                         _timer = Mathf.Min(_timer, wakeDelay);
+                        _wakeUntil = Time.time + wakeDelay;
                     }
+                    // идёт на щелчок заслонки — смотрит на объектив, а не на фотографа: пока идёт выдержка, не нападает
+                    if (_posingFor && _posingFor.IsExposing) break;
                     if (_waiting)
                     {
                         _timer -= Time.deltaTime;
@@ -301,9 +304,11 @@ namespace Jam.Gameplay
             _graceUntil = Time.time + seconds;
         }
 
+        float _wakeUntil;
+
         void Senses()
         {
-            if (Time.time < _graceUntil) return;
+            if (Time.time < _graceUntil || Time.time < _wakeUntil) return;
             if (safeRoom && safeRoom.PlayerInside) return;
             if (!player || Aggression <= 0) return; // обучение: только бродит
             float d = DistanceToPlayer;

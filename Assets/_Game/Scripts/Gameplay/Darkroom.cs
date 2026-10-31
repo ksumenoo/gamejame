@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
+using Jam.Audio;
 using Jam.Exposure;
 using Jam.Interaction;
 using Jam.Player;
@@ -54,7 +55,7 @@ namespace Jam.Gameplay
         public GameObject clothespin;
 
         [Header("Проявка")]
-        [Min(0.5f)] public float developSeconds = 4.5f;
+        [Min(0.1f)] public float developSeconds = 0.8f;
 
         [Header("Звук (необязательно)")]
         public AudioSource audioSource;
@@ -87,6 +88,7 @@ namespace Jam.Gameplay
         }
 
         float _redRangeBase = -1f;
+        float _nextBeacon;
 
         /// <summary>Без текста: в сумке есть пластина — красный свет проявочной зовёт из коридора.</summary>
         void UpdateCalling()
@@ -98,6 +100,13 @@ namespace Jam.Gameplay
             float targetI = calling ? redCalling * (0.75f + 0.25f * Mathf.Sin(Time.time * 2.2f)) : redIdle;
             float targetR = calling ? redCallingRange : _redRangeBase;
             redLight.intensity = Mathf.MoveTowards(redLight.intensity, targetI, Time.deltaTime * 2f);
+            // в сумке пластины — проявочная ещё и щёлкает затвором: тот же звук, что ведёт к обскуре и к штативу
+            if (calling && !GearPickup.Waiting && Time.time >= _nextBeacon)
+            {
+                _nextBeacon = Time.time + 8f;
+                if (player && (player.transform.position - transform.position).sqrMagnitude > 4f * 4f)
+                    JamAudio.Play("shutter_close", transform.position + Vector3.up);
+            }
             redLight.range = Mathf.MoveTowards(redLight.range, targetR, Time.deltaTime * 4f);
         }
 
@@ -132,8 +141,7 @@ namespace Jam.Gameplay
             try
             {
                 if (hand) hand.SetHeld(false);
-                if (player) player.InputLocked = true;
-                if (interactor) interactor.Locked = true;
+                // управление не отнимаем: короткий всплеск красного — и сразу снимок
                 if (audioSource && developClip) audioSource.PlayOneShot(developClip);
                 DevelopStarted?.Invoke(this);
 
@@ -165,8 +173,6 @@ namespace Jam.Gameplay
             }
             finally
             {
-                if (player) player.InputLocked = false;
-                if (interactor) interactor.Locked = false;
                 Busy = false;
             }
 

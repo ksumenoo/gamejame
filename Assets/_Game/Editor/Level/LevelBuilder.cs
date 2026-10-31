@@ -23,7 +23,7 @@ namespace Jam.EditorTools
     /// (SPAWN_Player), призрака (GHOST_xx, STOP_GHOST_xx), свет, NavMesh, интерфейс.
     /// Повторный запуск пересобирает только LEVEL_Generated — всё, что вне него, остаётся.
     /// </summary>
-    public static class LevelBuilder
+    public static partial class LevelBuilder
     {
         const string RootName = "LEVEL_Generated";
         const string MatFolder = "Assets/_Game/Level";
@@ -57,7 +57,13 @@ namespace Jam.EditorTools
                 return;
             }
 
+            // уровень живёт только в сцене Game — если открыта другая (меню), сохраняем её по желанию и открываем Game
             var scene = EditorSceneManager.GetActiveScene();
+            if (scene.path != GameScenePath && System.IO.File.Exists(GameScenePath))
+            {
+                if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+                scene = EditorSceneManager.OpenScene(GameScenePath, OpenSceneMode.Single);
+            }
             var old = scene.GetRootGameObjects().FirstOrDefault(g => g.name == RootName);
             if (old) Object.DestroyImmediate(old);
 
@@ -232,7 +238,9 @@ namespace Jam.EditorTools
             CreateCandelabras(markers, house, root.transform, matDark);
             CreateSeanceCandles(markers, house, root.transform, matDark);
             SetupDoors(house);
+            HideDupliCopies(house);
             PlaceProps(house, matProp);
+            CreateEmberGlows(house);
 
             // ---------- Graphy: FPS и память, чтобы следить за WebGL ----------
             // ---------- PS1-вид: low-res вывод и дрожание вершин ----------
@@ -949,7 +957,13 @@ namespace Jam.EditorTools
                 foreach (var r in go.GetComponentsInChildren<MeshRenderer>())
                 {
                     ApplyPs1Materials(r, fallback);
-                    if (!r.GetComponent<Collider>()) r.gameObject.AddComponent<BoxCollider>();
+                    if (!r.GetComponent<Collider>())
+                    {
+                        // зеркальные (отрицательный масштаб из FBX) BoxCollider не любит — им MeshCollider
+                        var s = r.transform.lossyScale;
+                        if (s.x < 0f || s.y < 0f || s.z < 0f) r.gameObject.AddComponent<MeshCollider>();
+                        else r.gameObject.AddComponent<BoxCollider>();
+                    }
                     GameObjectUtility.SetStaticEditorFlags(r.gameObject, StaticEditorFlags.BatchingStatic);
                 }
                 placed++;
@@ -1302,10 +1316,64 @@ namespace Jam.EditorTools
             return f;
         }
 
+        /// <summary>
+        /// Blender выгружает содержимое instance-коллекций (P_armchair и т.п.) как отдельные меши «…|Dupli|…» —
+        /// без материалов и не всегда внутри пустышки. Их прячем: на месте P_ встанет настоящий проп из Props/.
+        /// </summary>
+        /// <summary>Первый трек из Assets/Audio/Music (по имени) — для меню и титров.</summary>
+        internal static AudioClip FindMusic()
+        {
+            const string folder = "Assets/Audio/Music";
+            if (!AssetDatabase.IsValidFolder(folder)) return null;
+            return AssetDatabase.FindAssets("t:AudioClip", new[] { folder })
+                .Select(AssetDatabase.GUIDToAssetPath).OrderBy(p => p)
+                .Select(AssetDatabase.LoadAssetAtPath<AudioClip>).FirstOrDefault(c => c);
+        }
+
+        static void HideDupliCopies(GameObject house)
+        {
+            int n = 0;
+            foreach (var t in house.GetComponentsInChildren<Transform>(true))
+                if (t.name.Contains("Dupli") && t.gameObject.activeSelf) { t.gameObject.SetActive(false); n++; }
+            if (n > 0) Debug.Log($"[Jam] Спрятано копий из instance-коллекций: {n}.");
+        }
+
+        /// <summary>
+        /// Тлеющие угли: на любой объект AFTER_S{n}_…embers… (пустышка или плоскость в топке камина) — красный дышащий свет.
+        /// Появляется вместе с объектом после проявки сцены (его включает StoryDirector).
+        /// </summary>
+        static void CreateEmberGlows(GameObject house)
+        {
+            int n = 0;
+            foreach (var t in house.GetComponentsInChildren<Transform>(true))
+            {
+                if (!t.name.StartsWith("AFTER_", System.StringComparison.OrdinalIgnoreCase) ||
+                    t.name.IndexOf("embers", System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+                var l = new GameObject("EmberLight").AddComponent<Light>();
+                l.transform.SetParent(t, false);
+                l.transform.position = t.position + Vector3.up * 0.25f;
+                l.type = LightType.Point;
+                l.color = new Color(1f, 0.32f, 0.12f);
+                l.range = 3.2f;
+                l.intensity = 1.1f;
+                l.shadows = LightShadows.None;
+                l.gameObject.AddComponent<EmberGlow>();
+                n++;
+            }
+            if (n > 0) Debug.Log($"[Jam] Тлеющие угли: {n}.");
+        }
+
         /// <summary>Двери — объекты дома с именем DOOR_xx. Origin должен быть на петлях. Нет таких — пропускаем.</summary>
+        static Transform ClosestDoorTo(GameObject house, Vector3 p) =>
+            house.GetComponentsInChildren<Transform>(true)
+                .Where(t => Regex.IsMatch(t.name, @"^DOOR_\d+$"))
+                .OrderBy(t => (t.position - p).sqrMagnitude)
+                .FirstOrDefault();
+
         static void SetupDoors(GameObject house)
         {
             int n = 0;
+            var darkroomMark = house.GetComponentsInChildren<Transform>(true).FirstOrDefault(t => t.name == "DARKROOM_BENCH");
             var all = house.GetComponentsInChildren<Renderer>();
             Vector3 center = all.Length > 0 ? all.Aggregate(all[0].bounds, (acc, r) => { acc.Encapsulate(r.bounds); return acc; }).center : Vector3.zero;
 
@@ -1338,7 +1406,8 @@ namespace Jam.EditorTools
                 }
                 if (!t.GetComponent<NavMeshModifier>()) t.gameObject.AddComponent<NavMeshModifier>().ignoreFromBuild = true;
                 var door = t.gameObject.AddComponent<Door>();
-                door.startOpen = true; // дом «приоткрыт»: игрок сразу видит проходы, закрыть можно E
+                // открыта только дверь проявочной: туда и надо идти; остальные закрыты, но открываются E
+                door.startOpen = darkroomMark && t == ClosestDoorTo(house, darkroomMark.position);
                 door.openAwayFrom = center;
                 n++;
             }
@@ -1656,6 +1725,7 @@ namespace Jam.EditorTools
             var credits = credGo.AddComponent<EndCredits>();
             credits.group = credGo.GetComponent<CanvasGroup>();
             credits.text = credText;
+            credits.music = FindMusic();
             return credits;
         }
 

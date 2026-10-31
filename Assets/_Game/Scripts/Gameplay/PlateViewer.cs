@@ -23,7 +23,9 @@ namespace Jam.Gameplay
         public Text caption;
         [Tooltip("Материал на шейдере Jam/PlateDisplay")]
         public Material plateMaterial;
-        [Min(0.1f)] public float developSeconds = 3f;
+        [Min(0.1f)] public float developSeconds = 1.2f;
+        [Tooltip("Пластина закроется сама через столько секунд после проявления (0 — ждать игрока).")]
+        public float autoCloseSeconds = 6f;
 
         [Header("Игрок (блокируется, пока смотрим)")]
         public FirstPersonController player;
@@ -126,9 +128,16 @@ namespace Jam.Gameplay
                 await WaitTween(group.DOFade(1f, 0.25f).SetLink(gameObject), ct);
                 if (audioSource && developClip) audioSource.PlayOneShot(developClip);
 
+                // проявление можно промотать: E / ЛКМ / Esc сразу показывают снимок целиком
                 float t = 0f;
-                await WaitTween(DOTween.To(() => t, v => { t = v; if (_mat) _mat.SetFloat(DevelopId, v); }, 1f, developSeconds)
-                    .SetEase(Ease.InQuad).SetLink(gameObject), ct);
+                var reveal = DOTween.To(() => t, v => { t = v; if (_mat) _mat.SetFloat(DevelopId, v); }, 1f, developSeconds)
+                    .SetEase(Ease.InQuad).SetLink(gameObject);
+                while (reveal.IsActive() && !reveal.IsComplete())
+                {
+                    if (_close.WasPressedThisFrame()) { reveal.Complete(); break; }
+                    await UniTask.Yield(PlayerLoopTiming.Update, ct);
+                }
+                await UniTask.Yield(PlayerLoopTiming.Update, ct); // не засчитать то же нажатие как «закрыть»
 
                 if (sting)
                 {
@@ -137,7 +146,11 @@ namespace Jam.Gameplay
                     image.rectTransform.DOPunchScale(Vector3.one * 0.06f, 0.35f, 8, 0.6f).SetLink(gameObject);
                 }
 
-                await UniTask.WaitUntil(() => _close.WasPressedThisFrame(), cancellationToken: ct);
+                // серая «E» внизу — как закрыть; и сама закроется, если игрок не понял
+                ShowCloseHint(true);
+                float until = autoCloseSeconds > 0f ? Time.unscaledTime + autoCloseSeconds : float.MaxValue;
+                await UniTask.WaitUntil(() => _close.WasPressedThisFrame() || Time.unscaledTime >= until, cancellationToken: ct);
+                ShowCloseHint(false);
                 await WaitTween(group.DOFade(0f, 0.2f).SetLink(gameObject), ct);
             }
             catch (OperationCanceledException)
@@ -147,8 +160,33 @@ namespace Jam.Gameplay
             finally
             {
                 IsOpen = false;
+                ShowCloseHint(false);
                 SetPlayerLocked(false);
             }
+        }
+
+        Text _closeHint;
+
+        void ShowCloseHint(bool on)
+        {
+            if (!_closeHint && on && group)
+            {
+                var go = new GameObject("CloseHint", typeof(RectTransform), typeof(Text));
+                go.transform.SetParent(group.transform, false);
+                _closeHint = go.GetComponent<Text>();
+                _closeHint.font = caption && caption.font ? caption.font : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+                _closeHint.fontSize = 30;
+                _closeHint.alignment = TextAnchor.MiddleCenter;
+                _closeHint.color = new Color(0.6f, 0.58f, 0.53f, 0.9f);
+                _closeHint.text = "E";
+                _closeHint.raycastTarget = false;
+                var rt = _closeHint.rectTransform;
+                rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0f);
+                rt.pivot = new Vector2(0.5f, 0f);
+                rt.anchoredPosition = new Vector2(0f, 18f);
+                rt.sizeDelta = new Vector2(200f, 40f);
+            }
+            if (_closeHint) _closeHint.gameObject.SetActive(on);
         }
 
         /// <summary>Прервать показ (смерть, катсцена).</summary>

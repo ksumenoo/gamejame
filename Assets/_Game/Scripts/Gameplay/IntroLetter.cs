@@ -124,6 +124,16 @@ namespace Jam.Gameplay
             catch (OperationCanceledException) { }
             finally
             {
+                // сцену выгрузили (выход в меню / из Play) — объекты уже уничтожены, трогать нечего
+                if (!ct.IsCancellationRequested) await CloseAsync(ct);
+            }
+            if (ct.IsCancellationRequested) return;
+            Closed?.Invoke();
+        }
+
+        async UniTask CloseAsync(CancellationToken ct)
+        {
+            {
                 if (audioSource) { audioSource.DOKill(); audioSource.Stop(); }
                 if (houseImage) houseImage.gameObject.SetActive(false);
                 if (paper) paper.gameObject.SetActive(false);
@@ -137,7 +147,6 @@ namespace Jam.Gameplay
                 if (player) player.InputLocked = false;
                 if (interactor) interactor.Locked = false;
             }
-            Closed?.Invoke();
         }
 
         async UniTask PlayLetterAsync(List<string> lines, CancellationToken ct)

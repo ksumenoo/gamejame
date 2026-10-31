@@ -325,6 +325,9 @@ namespace Jam.Gameplay
                 Lock(true);
                 Finished?.Invoke();
                 if (credits) await credits.ShowAsync();
+                // титры постояли — обратно в главное меню (если оно есть в сборке)
+                await UniTask.Delay(TimeSpan.FromSeconds(9), cancellationToken: ct);
+                if (GameSession.HasMenu) GameSession.ReturnToMenu();
             }
             catch (OperationCanceledException) { }
         }
