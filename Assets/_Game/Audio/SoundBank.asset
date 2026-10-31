@@ -127,3 +127,33 @@ MonoBehaviour:
     pitchJitter: 0.08
     spatial: 1
     maxDistance: 15
+  - key: prop_heavy
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 1
+    maxDistance: 15
+  - key: prop_fall
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 1
+    maxDistance: 15
+  - key: dish_break
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 1
+    maxDistance: 15
+  - key: prop_creak
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 1
+    maxDistance: 15
+  - key: death_gasp
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 0
+    maxDistance: 15

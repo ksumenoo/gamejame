@@ -44,8 +44,9 @@ namespace Jam.Gameplay
             Refresh();
             if (added)
             {
-                if (!_shownFirst) { _shownFirst = true; ShowHint(firstPickupHint); }
-                else if (!inv.HasRoom) ShowHint(fullHint);
+                // без текста: куда нести пластину, показывает красный свет проявочной (Darkroom),
+                // а полную сумку — дёрнувшийся счётчик
+                _shownFirst = true;
             }
         }
 

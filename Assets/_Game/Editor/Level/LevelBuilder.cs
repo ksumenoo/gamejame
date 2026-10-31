@@ -82,7 +82,11 @@ namespace Jam.EditorTools
             foreach (var r in house.GetComponentsInChildren<MeshRenderer>())
             {
                 ApplyPs1Materials(r, IsFloor(r) ? matFloor : matWall);
-                GameObjectUtility.SetStaticEditorFlags(r.gameObject, StaticEditorFlags.BatchingStatic | StaticEditorFlags.OccluderStatic | StaticEditorFlags.OccludeeStatic | StaticEditorFlags.ContributeGI);
+                // шкафы, стулья, посуду в акте 2 роняет призрак (Poltergeist) — их нельзя склеивать статик-батчингом
+                bool movable = Poltergeist.GroupKey(r.name) != null;
+                GameObjectUtility.SetStaticEditorFlags(r.gameObject, movable
+                    ? StaticEditorFlags.OccludeeStatic
+                    : StaticEditorFlags.BatchingStatic | StaticEditorFlags.OccluderStatic | StaticEditorFlags.OccludeeStatic | StaticEditorFlags.ContributeGI);
             }
 
             var markers = house.GetComponentsInChildren<Transform>(true)
@@ -226,6 +230,7 @@ namespace Jam.EditorTools
             }
 
             CreateCandelabras(markers, house, root.transform, matDark);
+            CreateSeanceCandles(markers, house, root.transform, matDark);
             SetupDoors(house);
             PlaceProps(house, matProp);
 
@@ -258,6 +263,11 @@ namespace Jam.EditorTools
             twist.credits = credits;
             twist.finalPlate = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Art/2D/UI/P_Final.png");
             twist.whiteFlash = CreateWhiteFlash(hud.frame.parent);
+            twist.ceilingMode = true;      // акт 2: игрок на потолке
+            twist.continueToAct2 = true;
+
+            // ---------- акт 2: призрак на потолке, живой фотограф ----------
+            CreateAct2(root.transform, markers, viewRoot, fpc, interactor, twist, hud, credits, station, matProp);
 
             var graphyPath = AssetDatabase.FindAssets("Graphy t:Prefab")
                 .Select(AssetDatabase.GUIDToAssetPath)
@@ -1198,6 +1208,54 @@ namespace Jam.EditorTools
             Debug.Log($"[Jam] Канделябров: {points.Count} ({(fromMarkers ? "по меткам CANDLE_xx" : "по центрам комнат")}).");
         }
 
+        /// <summary>
+        /// Сцена 3 (сеанс): после проявки вокруг стола сеанса сами собой горят свечи — объект AFTER_S3_candles,
+        /// его включает StoryDirector. Модель Props/candles.fbx, огоньки и тёплый свет — кодом.
+        /// Это не канделябры: в акте 2 их гасить не нужно.
+        /// </summary>
+        static void CreateSeanceCandles(Dictionary<string, Transform> markers, GameObject house, Transform parent, Material fallback)
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>($"{PropsFolder}/candles.fbx");
+            if (!prefab) return;
+            var table = house.GetComponentsInChildren<Renderer>(true).Where(r => r.name.StartsWith("F_seance_table")).ToList();
+            Vector3 center;
+            if (table.Count > 0)
+            {
+                var b = table[0].bounds;
+                foreach (var r in table) b.Encapsulate(r.bounds);
+                center = b.center;
+            }
+            else if (markers.TryGetValue("SCENE_03", out var sc)) center = sc.position;
+            else return;
+
+            var root = new GameObject("AFTER_S3_candles").transform;
+            root.SetParent(parent, false);
+            for (int i = 0; i < 4; i++)
+            {
+                float a = (45f + 90f * i) * Mathf.Deg2Rad;
+                Vector3 p = center + new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * 1.25f;
+                p.y = FloorY(new Vector3(p.x, center.y + 0.4f, p.z), 0f);
+                var g = new GameObject($"Candles_{i + 1}").transform;
+                g.SetParent(root, false);
+                g.position = p;
+                var m = (GameObject)PrefabUtility.InstantiatePrefab(prefab, g);
+                m.transform.localPosition = Vector3.zero;
+                m.transform.localRotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f) * m.transform.localRotation;
+                foreach (var c in m.GetComponentsInChildren<Collider>(true)) Object.DestroyImmediate(c);
+                foreach (var top in CandleTops(m)) CreateFlameDot(g, top, 0);
+                foreach (var r in m.GetComponentsInChildren<Renderer>()) { ApplyPs1Materials(r, fallback); r.shadowCastingMode = ShadowCastingMode.Off; }
+                var l = new GameObject("Light").AddComponent<Light>();
+                l.transform.SetParent(g, false);
+                l.transform.localPosition = Vector3.up * 0.5f;
+                l.type = LightType.Point;
+                l.color = new Color(1f, 0.68f, 0.38f);
+                l.range = 3f;
+                l.intensity = 0.8f;
+                l.shadows = LightShadows.None;
+            }
+            Debug.Log("[Jam] Сцена 3: свечи вокруг стола сеанса (появятся после проявки).");
+        }
+
         static Material s_flameMat;
 
         /// <summary>Верхушки свечей: самые высокие вершины частей с материалом T_Plaster, сгруппированные по свечам.</summary>
@@ -1317,7 +1375,7 @@ namespace Jam.EditorTools
                 if (e == null)
                 {
                     e = new Jam.Audio.SoundBank.Entry { key = key };
-                    if (key == "ambient" || key == "sting" || key == "caught" || key == "margaret_chase" || key == "obscura_raise" || key == "candle_out" || key == "candle_light" || key == "flash" || key == "flash_empty")
+                    if (key == "ambient" || key == "sting" || key == "caught" || key == "death_gasp" || key == "margaret_chase" || key == "obscura_raise" || key == "candle_out" || key == "candle_light" || key == "flash" || key == "flash_empty")
                         e.spatial = false;
                     if (key == "ambient") e.volume = 0.5f;
                     bank.entries.Add(e);
@@ -1331,6 +1389,174 @@ namespace Jam.EditorTools
             AssetDatabase.SaveAssets();
             Debug.Log($"[Jam] Звук: клипы есть для {found} из {Jam.Audio.SoundBank.Keys.Length} ключей (кладите файлы в {AudioFolder}, имя = ключ).");
             return bank;
+        }
+
+        // ================= акт 2 =================
+
+        /// <summary>
+        /// Акт 2: Act2Director, живой фотограф (спрайты C_Photographer_Stand / C_Photographer_Walk_1…4, иначе капсула-заглушка),
+        /// два его штатива (копия модели нашей камеры + холодный конус света, пока заслонка открыта),
+        /// белая виньетка «проявленности».
+        /// </summary>
+        static void CreateAct2(Transform root, Dictionary<string, Transform> markers, Transform viewRoot, FirstPersonController fpc,
+            Interactor interactor, TwistSequence twist, HudRefs hud, EndCredits credits, CameraStation station, Material matProp)
+        {
+            var director = root.gameObject.AddComponent<Act2Director>();
+            director.player = fpc;
+            director.interactor = interactor;
+            director.twist = twist;
+            director.viewer = hud.viewer;
+            director.credits = credits;
+            director.whiteFlash = twist.whiteFlash;
+            director.finalPlate = (Texture)AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Art/2D/UI/P_Final_Act2.png")
+                                  ?? AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Art/2D/UI/P_Final.png");
+
+            // --- виньетка «проявленности» ---
+            var canvas = hud.frame.parent;
+            var meterGo = new GameObject("GhostMeter", typeof(RectTransform), typeof(CanvasGroup), typeof(RawImage));
+            meterGo.transform.SetParent(canvas, false);
+            Stretch((RectTransform)meterGo.transform);
+            var edges = meterGo.GetComponent<RawImage>();
+            edges.texture = GhostEdgesTexture();
+            edges.color = new Color(1f, 0.97f, 0.9f);
+            edges.raycastTarget = false;
+            var meterGroup = meterGo.GetComponent<CanvasGroup>();
+            meterGroup.alpha = 0f;
+            meterGroup.blocksRaycasts = false;
+            meterGo.transform.SetSiblingIndex(1);
+            var meter = meterGo.AddComponent<GhostMeterUI>();
+            meter.group = meterGroup;
+            director.meter = meter;
+
+            // --- живой фотограф ---
+            markers.TryGetValue("SPAWN_Player", out var spawn);
+            var ph = new GameObject("LivingPhotographer");
+            ph.transform.SetParent(root, false);
+            ph.transform.position = spawn ? spawn.position : Vector3.zero;
+            var agent = ph.AddComponent<NavMeshAgent>();
+            agent.radius = 0.3f;
+            agent.height = 1.8f;
+            agent.speed = 1.3f;
+            agent.angularSpeed = 240f;
+            agent.acceleration = 6f;
+            agent.stoppingDistance = 0.2f;
+            agent.obstacleAvoidanceType = ObstacleAvoidanceType.NoObstacleAvoidance;
+            agent.enabled = false; // включит LivingPhotographer.Begin()
+
+            var stand = AssetDatabase.LoadAssetAtPath<Texture2D>($"{CharactersFolder}/C_Photographer_Stand.png");
+            var walk = Enumerable.Range(1, 4)
+                .Select(i => AssetDatabase.LoadAssetAtPath<Texture2D>($"{CharactersFolder}/C_Photographer_Walk_{i}.png"))
+                .Where(t => t).ToArray();
+            GameObject visual;
+            if (stand)
+            {
+                visual = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                var (w, h) = FigureSize(stand, MargaretHeight);
+                visual.transform.SetParent(ph.transform, false);
+                visual.transform.localPosition = new Vector3(0f, h * 0.5f, 0f);
+                visual.transform.localScale = new Vector3(w, h, 1f);
+                var pm = SaveBillboardMat("M_Photographer_Sprite", Color.white);
+                pm.SetTexture("_BaseMap", stand);
+                visual.GetComponent<Renderer>().sharedMaterial = pm;
+            }
+            else
+            {
+                // заглушка, пока художники не нарисовали C_Photographer_Stand
+                visual = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+                visual.transform.SetParent(ph.transform, false);
+                visual.transform.localPosition = new Vector3(0f, 0.9f, 0f);
+                visual.transform.localScale = new Vector3(0.55f, 0.9f, 0.55f);
+                visual.GetComponent<Renderer>().sharedMaterial = SaveMat("M_Photographer_Placeholder", new Color(0.32f, 0.3f, 0.28f));
+            }
+            visual.name = "Visual";
+            Object.DestroyImmediate(visual.GetComponent<Collider>());
+            visual.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
+
+            var photographer = ph.AddComponent<LivingPhotographer>();
+            photographer.visual = visual.GetComponent<Renderer>();
+            photographer.standTexture = stand;
+            photographer.walkFrames = walk;
+            photographer.tripodBlockers = MaskSolid;
+            photographer.spawn = spawn;
+            photographer.exit = spawn;
+            foreach (Transform vp in viewRoot)
+                if (vp.name.StartsWith("ViewPoint_")) photographer.points.Add(vp);
+
+            // --- его штативы: копия модели нашей камеры ---
+            var model = station ? station.transform.Find("Model") : null;
+            for (int i = 0; i < 2; i++)
+            {
+                var t = new GameObject($"PhotographerTripod_{i + 1}");
+                t.transform.SetParent(root, false);
+                if (model)
+                {
+                    var m = Object.Instantiate(model.gameObject, t.transform, false);
+                    m.name = "Model";
+                    m.transform.localPosition = model.localPosition;
+                    m.transform.localRotation = model.localRotation;
+                    foreach (var c in m.GetComponentsInChildren<Collider>(true)) Object.DestroyImmediate(c);
+                    // метка «открытая заслонка» — только для нашей камеры, у копии её прячем
+                    var openMark = FindDeep(m.transform, "Shutter_Open");
+                    if (openMark && openMark.GetComponent<Renderer>()) openMark.GetComponent<Renderer>().enabled = false;
+                }
+                else
+                {
+                    Box("Box", t.transform, new Vector3(0f, LensHeight, 0f), new Vector3(0.3f, 0.3f, 0.4f), matProp, false);
+                    Box("Legs", t.transform, new Vector3(0f, LensHeight * 0.5f, 0f), new Vector3(0.06f, LensHeight, 0.06f), matProp, false);
+                }
+                var pc = t.AddComponent<PhotographerCamera>();
+                pc.occluders = MaskSolid;
+                pc.lensHeight = LensHeight;
+                // холодный конус света, пока заслонка открыта: видно, куда смотрит камера
+                var beam = new GameObject("Beam").AddComponent<Light>();
+                beam.transform.SetParent(t.transform, false);
+                beam.transform.localPosition = new Vector3(0f, LensHeight, 0.2f);
+                beam.transform.localRotation = Quaternion.identity;
+                beam.type = LightType.Spot;
+                beam.spotAngle = pc.halfAngle * 2f;
+                beam.range = pc.range;
+                beam.intensity = 2f;
+                beam.color = new Color(0.75f, 0.85f, 1f);
+                beam.shadows = LightShadows.None;
+                beam.enabled = false;
+                pc.beam = beam;
+                t.SetActive(false);
+                photographer.tripods.Add(pc);
+            }
+            director.photographer = photographer;
+            Debug.Log($"[Jam] Акт 2: фотограф {(stand ? "со спрайтом" : "— заглушка")}, точек съёмки {photographer.points.Count}.");
+        }
+
+        /// <summary>Белые края экрана с прозрачной серединой — призрак «проявляется».</summary>
+        static Texture2D GhostEdgesTexture()
+        {
+            string path = MatFolder + "/UI_GhostEdges.png";
+            var existing = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            if (existing) return existing;
+            const int N = 128;
+            var t = new Texture2D(N, N, TextureFormat.RGBA32, false);
+            var px = new Color32[N * N];
+            for (int y = 0; y < N; y++)
+            for (int x = 0; x < N; x++)
+            {
+                float dx = (x + 0.5f) / N * 2f - 1f, dy = (y + 0.5f) / N * 2f - 1f;
+                float r = Mathf.Sqrt(dx * dx + dy * dy) / 1.414f;
+                byte a = (byte)(Mathf.Clamp01(Mathf.InverseLerp(0.35f, 1f, r)) * 255f);
+                px[y * N + x] = new Color32(255, 255, 255, a);
+            }
+            t.SetPixels32(px);
+            t.Apply();
+            File.WriteAllBytes(Path.Combine(Directory.GetCurrentDirectory(), path), t.EncodeToPNG());
+            Object.DestroyImmediate(t);
+            AssetDatabase.ImportAsset(path);
+            if (AssetImporter.GetAtPath(path) is TextureImporter ti)
+            {
+                ti.alphaIsTransparency = true;
+                ti.mipmapEnabled = false;
+                ti.wrapMode = TextureWrapMode.Clamp;
+                ti.SaveAndReimport();
+            }
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
         }
 
         static CanvasGroup CreateWhiteFlash(Transform canvas)

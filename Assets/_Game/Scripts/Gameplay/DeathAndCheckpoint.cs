@@ -3,7 +3,9 @@ using Cysharp.Threading.Tasks;
 using DG.Tweening;
 using Jam.Interaction;
 using Jam.Player;
+using Jam.Audio;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace Jam.Gameplay
 {
@@ -75,7 +77,10 @@ namespace Jam.Gameplay
                 if (interactor) interactor.Locked = true;
                 if (hand) hand.SetHeld(false);
                 if (viewer) viewer.ForceClose();
+                // без скримера: удар звука и чёрный экран. Два звука: её (caught) и его вскрик (death_gasp)
                 if (audioSource && caughtClip) audioSource.PlayOneShot(caughtClip);
+                else Jam.Audio.JamAudio.Play("caught");
+                Jam.Audio.JamAudio.Play("death_gasp");
 
                 if (blackout)
                 {
@@ -90,6 +95,9 @@ namespace Jam.Gameplay
                 if (inventory) inventory.DropAll();
                 Teleport(_cpPos, _cpRot);
                 if (margaret && player) margaret.Calm(graceAfterRespawn, player.transform.position);
+                // после смерти — немного магния, чтобы было чем отбиться (не больше максимума)
+                var flash = FindAnyObjectByType<MagnesiumFlash>();
+                if (flash) flash.AddCharges(flash.chargesPerDeath);
                 var portable = FindAnyObjectByType<PortableCamera>();
                 if (portable) portable.ReturnToPlayer();
 

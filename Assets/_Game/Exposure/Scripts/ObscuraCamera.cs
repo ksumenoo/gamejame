@@ -44,6 +44,8 @@ namespace Jam.Exposure
         public bool IsExposing { get; private set; }
         /// <summary>0..1 — сколько выдержки прошло.</summary>
         public float Progress { get; private set; }
+        /// <summary>Скорость выдержки: 1 — обычная, меньше — в темноте пластине нужно больше времени (CameraStation).</summary>
+        public float Speed { get; set; } = 1f;
 
         public event Action<ObscuraCamera> ExposureStarted;
         public event Action<ObscuraCamera, Plate> ExposureFinished;
@@ -156,7 +158,7 @@ namespace Jam.Exposure
 
             ExposureStarted?.Invoke(this);
 
-            var wait = new WaitForSeconds(frameInterval);
+            Speed = 1f;
             for (int i = 0; i < _ticksTotal; i++)
             {
                 RenderFrame();
@@ -164,7 +166,8 @@ namespace Jam.Exposure
                 SampleSubjects();
                 _ticksDone = i + 1;
                 Progress = (float)_ticksDone / _ticksTotal;
-                yield return wait;
+                // кадров всегда одинаково — в темноте они просто реже, выдержка дольше
+                yield return new WaitForSeconds(frameInterval / Mathf.Max(0.1f, Speed));
             }
 
             var caught = new HashSet<ExposureSubject>();

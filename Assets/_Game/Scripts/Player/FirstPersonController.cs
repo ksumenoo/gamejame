@@ -37,6 +37,8 @@ namespace Jam.Player
         public float CurrentSpeed { get; private set; }
         public bool IsRunning { get; private set; }
         public bool IsSneaking { get; private set; }
+        /// <summary>Только тихий шаг: бега нет (начало игры — пока камеры не взяты).</summary>
+        public bool ForceSneak { get; set; }
         /// <summary>Множитель скорости от снаряжения (поднятая обскура — 0.4). Бег при множителе меньше 1 запрещён.</summary>
         public float SpeedMultiplier { get; set; } = 1f;
         /// <summary>Множители мыши по осям: (-1, -1) — управление для перевёрнутой картинки после перелома.</summary>
@@ -44,19 +46,24 @@ namespace Jam.Player
         /// <summary>-1 — стрейф наоборот (картинка перевёрнута, лево и право на экране поменялись).</summary>
         public float StrafeInvert { get; set; } = 1f;
 
+        /// <summary>Акт 2: ходим по потолку — тяжесть тянет вверх, голова внизу капсулы.</summary>
+        public bool Ceiling { get; private set; }
+        /// <summary>Стоим на поверхности (на полу или, в акте 2, на потолке).</summary>
+        public bool Grounded => Ceiling ? (_cc.collisionFlags & CollisionFlags.Above) != 0 : _cc.isGrounded;
+
         /// <summary>Вызывается на каждый шаг — сюда вешаем звук шагов.</summary>
         public event System.Action<FirstPersonController> Footstep;
 
         CharacterController _cc;
         InputAction _move, _look, _run, _sneak;
         Vector3 _velocity;
-        float _pitch, _bobPhase, _pivotBaseY, _verticalVelocity;
+        float _pitch, _bobPhase, _pivotBaseY, _pivotFloorY, _verticalVelocity;
         int _lastStepIndex;
 
         void Awake()
         {
             _cc = GetComponent<CharacterController>();
-            if (cameraPivot) _pivotBaseY = cameraPivot.localPosition.y;
+            if (cameraPivot) _pivotBaseY = _pivotFloorY = cameraPivot.localPosition.y;
 
             _move = new InputAction("Move", InputActionType.Value);
             _move.AddCompositeBinding("2DVector")
@@ -107,7 +114,7 @@ namespace Jam.Player
 
         void Move(Vector2 input)
         {
-            IsSneaking = !InputLocked && _sneak.IsPressed();
+            IsSneaking = !InputLocked && (ForceSneak || _sneak.IsPressed());
             IsRunning = !InputLocked && !IsSneaking && SpeedMultiplier >= 0.99f && _run.IsPressed() && input.y > 0.1f;
             float targetSpeed = (IsSneaking ? sneakSpeed : IsRunning ? runSpeed : walkSpeed) * SpeedMultiplier;
 
@@ -117,8 +124,10 @@ namespace Jam.Player
             Vector3 targetVel = wish * targetSpeed;
             _velocity = Vector3.MoveTowards(_velocity, targetVel, acceleration * Time.deltaTime);
 
-            if (_cc.isGrounded && _verticalVelocity < 0f) _verticalVelocity = -2f;
-            _verticalVelocity += gravity * Time.deltaTime;
+            // в акте 2 тяжесть наоборот: «вниз» — это к потолку
+            float g = Ceiling ? -gravity : gravity;
+            if (Grounded && _verticalVelocity * Mathf.Sign(g) > 0f) _verticalVelocity = Mathf.Sign(g) * 2f;
+            _verticalVelocity += g * Time.deltaTime;
 
             _cc.Move((_velocity + Vector3.up * _verticalVelocity) * Time.deltaTime);
 
@@ -131,7 +140,7 @@ namespace Jam.Player
             if (!cameraPivot) return;
             float speed01 = Mathf.Clamp01(CurrentSpeed / runSpeed);
 
-            if (CurrentSpeed > 0.1f && _cc.isGrounded)
+            if (CurrentSpeed > 0.1f && Grounded)
             {
                 _bobPhase += Time.deltaTime * bobFrequency * Mathf.Lerp(0.6f, 1.6f, speed01) * Mathf.PI * 2f;
                 int stepIndex = Mathf.FloorToInt(_bobPhase / Mathf.PI);
@@ -149,6 +158,34 @@ namespace Jam.Player
             var p = cameraPivot.localPosition;
             p.y = _pivotBaseY + Mathf.Abs(Mathf.Sin(_bobPhase)) * bobAmplitude * (0.5f + speed01);
             cameraPivot.localPosition = p;
+        }
+
+        /// <summary>
+        /// Включить хождение по потолку: тяжесть вверх, глаза у «нижнего» конца капсулы (голова свисает вниз).
+        /// Камеру по Z переворачивает TwistSequence, мышь и стрейф — LookInvert / StrafeInvert.
+        /// </summary>
+        public void SetCeiling(bool on)
+        {
+            Ceiling = on;
+            _verticalVelocity = 0f;
+            float h = _cc ? _cc.height : 1.8f;
+            _pivotBaseY = on ? Mathf.Max(0.05f, h - _pivotFloorY) : _pivotFloorY;
+            if (cameraPivot)
+            {
+                var p = cameraPivot.localPosition;
+                p.y = _pivotBaseY;
+                cameraPivot.localPosition = p;
+            }
+        }
+
+        /// <summary>Переставить игрока (CharacterController иначе не даст сдвинуть).</summary>
+        public void Teleport(Vector3 position, Quaternion rotation)
+        {
+            if (_cc) _cc.enabled = false;
+            transform.SetPositionAndRotation(position, rotation);
+            if (_cc) _cc.enabled = true;
+            _velocity = Vector3.zero;
+            _verticalVelocity = 0f;
         }
 
         void HandleCursor()

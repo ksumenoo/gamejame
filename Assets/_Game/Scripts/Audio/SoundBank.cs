@@ -31,6 +31,7 @@ namespace Jam.Audio
             "footstep", "shutter_open", "shutter_close", "exposure_tick", "develop", "sting",
             "flash", "flash_empty", "candle_out", "candle_light", "door_open", "door_close", "door_slam",
             "margaret_whisper", "margaret_chase", "caught", "ambient", "obscura_raise", "scene_align",
+            "prop_heavy", "prop_fall", "dish_break", "prop_creak", "death_gasp",
         };
 
         Dictionary<string, Entry> _map;

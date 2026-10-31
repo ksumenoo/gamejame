@@ -160,6 +160,17 @@ namespace Jam.Gameplay
             rot = Quaternion.LookRotation(look.normalized, Vector3.up);
         }
 
+        /// <summary>Поставить штатив в точку из кода (нулевая сцена: камера уже стоит в проявочной).</summary>
+        public void PlaceAt(Vector3 floorPos, Vector3 forward)
+        {
+            forward.y = 0f;
+            if (forward.sqrMagnitude < 1e-4f) forward = transform.forward;
+            startCarried = false;
+            transform.DOKill();
+            transform.SetPositionAndRotation(floorPos, Quaternion.LookRotation(forward.normalized, Vector3.up));
+            SetCarried(false);
+        }
+
         /// <summary>После смерти камера снова в руках; недоснятая или незабранная пластина пропадает.</summary>
         public void ReturnToPlayer()
         {

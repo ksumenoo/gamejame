@@ -37,8 +37,11 @@ namespace Jam.Gameplay
         public float hearRunRadius = 6f; // бег слышно через пару комнат, а не через весь дом
         public float hearWalkRadius = 3f;
         public float sightRadius = 6f;
+        [Tooltip("Игрок крадётся (C): замечает его только вблизи, м. Шаги на C она не слышит вовсе.")]
+        public float sneakSightRadius = 3f;
         [Range(10f, 180f)] public float sightAngle = 140f;
-        public float exposureAttractRadius = 30f;
+        [Tooltip("Щелчок заслонки она слышит не дальше этого, м (было 30 — слышала весь дом, и каждая выдержка звала её).")]
+        public float exposureAttractRadius = 16f;
         public float sensesPerAggression = 0.05f;
         [Tooltip("После проявки она уходит в дальний конец дома и столько секунд никого не замечает.")]
         public float graceAfterDevelop = 12f;
@@ -55,7 +58,14 @@ namespace Jam.Gameplay
         public float lureDistance = 2f;
         public float loseSightTime = 3.5f;
         public float killDistance = 0.9f;
+        [Tooltip("Дольше этого не гонится, если не догнала (и игрок дальше 3 м), с.")]
+        public float maxChaseSeconds = 12f;
+        float _chaseStart;
         public float repathInterval = 0.25f;
+
+        [Header("Свет")]
+        [Tooltip("Канделябры ближе этого (по горизонтали) гаснут, когда она проходит мимо, м. 0 — не гасит.")]
+        public float douseRadius = 2f;
 
         [ShowNativeProperty] public State Current { get; private set; } = State.Patrol;
         [ShowNativeProperty] public int Aggression => StoryDirector.Instance ? StoryDirector.Instance.Aggression : 1;
@@ -67,6 +77,8 @@ namespace Jam.Gameplay
         public event Action<MargaretAI, State> StateChanged;
         /// <summary>Встала к стойке перед объективом.</summary>
         public event Action<MargaretAI> Posed;
+        /// <summary>Погасила канделябр, проходя мимо.</summary>
+        public event Action<MargaretAI, Candelabra> DousedCandle;
 
         NavMeshAgent _agent;
         Vector3 _target;
@@ -114,6 +126,7 @@ namespace Jam.Gameplay
         /// <summary>Оглушить (вспышка магния).</summary>
         public void Stun(float seconds)
         {
+            if (Companion) return;
             if (Current == State.Caught) return;
             SetState(State.Stunned);
             _timer = seconds;
@@ -123,6 +136,7 @@ namespace Jam.Gameplay
         /// <summary>Громкий звук (вспышка, хлопок двери): если не оглушена и не в погоне — идёт проверить.</summary>
         public void HearNoise(Vector3 position)
         {
+            if (Companion) return;
             if (Current == State.Stunned || Current == State.Caught || Current == State.Chase || Aggression <= 0) return;
             Investigate(position);
         }
@@ -144,7 +158,57 @@ namespace Jam.Gameplay
             PickPatrolPoint();
         }
 
+        // ---------------- акт 2: рядом ----------------
+
+        /// <summary>Акт 2: она больше не охотится и видна без обскуры — просто бродит по дому и пугает живого фотографа.</summary>
+        [ShowNativeProperty] public bool Companion { get; private set; }
+        [Header("Акт 2")]
+        float _followRepath;
+
+        public void BecomeCompanion()
+        {
+            Companion = true;
+            _posingFor = null;
+            _graceUntil = 0f;
+            SetState(State.Patrol);
+            if (!gameObject.activeSelf) gameObject.SetActive(true);
+            if (_agent.enabled && _agent.isOnNavMesh) _agent.ResetPath();
+        }
+
+        /// <summary>Акт 2: бродит по дому сама по себе. Рядом с фотографом шепчет — пугает его (LivingPhotographer).</summary>
+        void FollowCompanion()
+        {
+            _followRepath -= Time.deltaTime;
+            _agent.speed = walkSpeed;
+            if (_followRepath > 0f) return;
+            _followRepath = 0.5f;
+            if (!_agent.hasPath || Arrived()) PickPatrolPoint();
+        }
+
         // ---------------- логика ----------------
+
+        float _douseCheck;
+
+        /// <summary>Рядом с ней огонь не живёт: та же примета, что и со свечой в руке.</summary>
+        void DouseCandles()
+        {
+            // гасит, пока бродит по дому; на щелчок заслонки идёт не за этим — иначе в темноте окажется каждый кадр
+            if (douseRadius <= 0f || Candelabra.GhostMode || Current != State.Patrol) return;
+            _douseCheck -= Time.deltaTime;
+            if (_douseCheck > 0f) return;
+            _douseCheck = 0.2f;
+            Vector3 me = transform.position;
+            foreach (var c in Candelabra.All)
+            {
+                if (!c || !c.HasFlame || !c.IsLit) continue;
+                Vector3 d = c.transform.position - me;
+                d.y = 0f;
+                if (d.magnitude > douseRadius) continue;
+                c.Extinguish();
+                DousedCandle?.Invoke(this, c);
+                break; // по одной за проверку — гаснут по очереди, как от сквозняка
+            }
+        }
 
         void Update()
         {
@@ -156,8 +220,10 @@ namespace Jam.Gameplay
                 else Unstick();
                 return;
             }
+            if (Companion) { FollowCompanion(); return; }
             float speedBonus = Mathf.Max(0, Aggression - 1) * speedPerAggression;
             WatchProgress();
+            DouseCandles();
             // страховка: поймала, а смерть/респаун не сбросили её — через 6 с уходит сама
             if (Current == State.Caught && Time.time - _caughtAt > 6f) { ResetAwayFrom(player ? player.transform.position : transform.position); return; }
 
@@ -207,6 +273,8 @@ namespace Jam.Gameplay
                     if (CanSeePlayer()) _lastSeen = Time.time;
                     else if (Time.time - _lastSeen > loseSightTime) Investigate(player.transform.position);
                     if (DistanceToPlayer < killDistance) Catch();
+                    // долго не догнала — сдаётся и идёт туда, где видела последний раз: у игрока есть передышка
+                    else if (Time.time - _chaseStart > maxChaseSeconds && DistanceToPlayer > 3f) Investigate(player.transform.position);
                     break;
 
                 case State.Stunned:
@@ -240,7 +308,8 @@ namespace Jam.Gameplay
             if (!player || Aggression <= 0) return; // обучение: только бродит
             float d = DistanceToPlayer;
 
-            if (d < sightRadius * Mult && CanSeePlayer())
+            float sight = player.IsSneaking ? sneakSightRadius : sightRadius;
+            if (d < sight * Mult && CanSeePlayer())
             {
                 _lastSeen = Time.time;
                 SetState(State.Chase);
@@ -266,6 +335,7 @@ namespace Jam.Gameplay
 
         void OnExposureStarted(ObscuraCamera cam)
         {
+            if (Companion) return;
             if (Current == State.Caught) return;
             // камера на точке сцены «посмертного портрета» — Маргарет сама встаёт к стойке и замирает на всю выдержку
             foreach (var sc in PastScene.All)
@@ -421,6 +491,7 @@ namespace Jam.Gameplay
         {
             if (Current == s) return;
             if (s != State.Investigate) _posingFor = null;
+            if (s == State.Chase) _chaseStart = Time.time;
             Current = s;
             StateChanged?.Invoke(this, s);
         }

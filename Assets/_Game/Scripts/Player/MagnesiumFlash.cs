@@ -19,6 +19,10 @@ namespace Jam.Player
         public LayerMask occluders = ~0;
 
         [Min(0)] public int charges = 3;
+        [Tooltip("Больше этого магния в сумке не бывает.")]
+        [Min(1)] public int maxCharges = 3;
+        [Tooltip("Сколько магния даётся после каждой смерти (не больше maxCharges).")]
+        [Min(0)] public int chargesPerDeath = 1;
         public float range = 7f;
         [Range(10f, 180f)] public float coneAngle = 60f;
         public float stunSeconds = 4f;
@@ -113,7 +117,7 @@ namespace Jam.Player
 
         public void AddCharges(int n)
         {
-            charges += n;
+            charges = Mathf.Clamp(charges + n, 0, maxCharges);
             ChargesChanged?.Invoke(charges);
         }
 

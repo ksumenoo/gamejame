@@ -143,7 +143,7 @@ namespace Jam.Player
         void Update()
         {
             bool locked = _fpc && _fpc.InputLocked;
-            bool want = _aim.IsPressed() && !locked;
+            bool want = (_aim.IsPressed() || Time.time < _demoUntil) && !locked;
             if (want != IsHeld) SetHeld(want);
 
             if (!IsHeld) return;
@@ -155,6 +155,14 @@ namespace Jam.Player
                 RenderNow();
             }
         }
+
+        float _demoUntil;
+
+        /// <summary>
+        /// Герой сам поднимает обскуру на несколько секунд и опускает (после письма):
+        /// игрок видит, что делает предмет, прежде чем ему скажут про кнопку.
+        /// </summary>
+        public void Demo(float seconds) => _demoUntil = Time.time + seconds;
 
         /// <summary>Поднять или опустить обскуру из кода (катсцены, смерть).</summary>
         public void SetHeld(bool held)

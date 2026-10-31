@@ -36,8 +36,31 @@ namespace Jam.Gameplay
         Vector3 _tip; // от петель к середине створки (закрытой), в мире
         bool _moving;
 
-        public string Prompt => IsOpen ? "Закрыть" : "Открыть";
-        public bool CanInteract(Interactor who) => !_moving;
+        /// <summary>Акт 2: призрак не открывает двери руками — держит E, стоя на месте, и дверь хлопает (или со скрипом открывается).</summary>
+        public static bool GhostMode;
+        [Tooltip("Акт 2: сколько секунд держать E.")]
+        public float ghostHoldSeconds = 1f;
+        Interactor _ghost;
+        Jam.Player.FirstPersonController _ghostBody;
+        float _ghostHold;
+
+        public string Prompt => GhostMode
+            ? (_ghost ? $"…{Mathf.RoundToInt(_ghostHold / ghostHoldSeconds * 100f)}%" : (IsOpen ? "Хлопнуть дверью (держать E)" : "Толкнуть дверь (держать E)"))
+            : (IsOpen ? "Закрыть" : "Открыть");
+        public bool CanInteract(Interactor who) => !_moving && (!GhostMode || !_ghost);
+
+        void Update()
+        {
+            if (!_ghost) return;
+            bool still = !_ghostBody || _ghostBody.CurrentSpeed < 0.3f;
+            if (!GhostMode || !_ghost.UseHeld || !still || !ReferenceEquals(_ghost.Current, this)) { _ghost = null; return; }
+            _ghostHold += Time.deltaTime;
+            if (_ghostHold < ghostHoldSeconds) return;
+            var who = _ghost;
+            _ghost = null;
+            if (IsOpen) Slam();
+            else SetOpen(true, SignAwayFrom(who.transform.position));
+        }
 
         void Awake()
         {
@@ -69,6 +92,13 @@ namespace Jam.Gameplay
 
         public void Interact(Interactor who)
         {
+            if (GhostMode)
+            {
+                _ghost = who;
+                _ghostBody = who ? who.GetComponentInParent<Jam.Player.FirstPersonController>() : null;
+                _ghostHold = 0f;
+                return;
+            }
             // открываем от игрока, чтобы не толкать его дверью
             float sign = who ? SignAwayFrom(who.transform.position) : 1f;
             SetOpen(!IsOpen, sign);

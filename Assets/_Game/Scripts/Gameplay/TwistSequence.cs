@@ -36,7 +36,7 @@ namespace Jam.Gameplay
         public Texture finalPlate;
 
         [Header("Сценарий")]
-        [Tooltip("TODO: дом на потолке. Пока не реализовано — используется переворот картинки.")]
+        [Tooltip("Акт 2 на потолке: во время белой вспышки Act2Director переносит игрока на потолок (тяжесть вверх).")]
         public bool ceilingMode;
         public bool continueToAct2;
         [Tooltip("Сколько секунд игрок бродит по перевёрнутому дому до титров.")]
@@ -78,8 +78,12 @@ namespace Jam.Gameplay
                 await UniTask.Delay(300, cancellationToken: ct);
                 if (viewer) await UniTask.WaitUntil(() => !viewer.IsOpen, cancellationToken: ct);
 
-                // 2. Маргарет исчезает — дальше она не охотится
-                if (margaret) margaret.gameObject.SetActive(false);
+                // 2. Маргарет больше не охотится. В акте 2 она остаётся — теперь мы по одну сторону стекла
+                if (margaret)
+                {
+                    if (ceilingMode) margaret.BecomeCompanion();
+                    else margaret.gameObject.SetActive(false);
+                }
                 Lock(true);
                 if (hand) hand.SetHeld(false);
 
@@ -90,6 +94,8 @@ namespace Jam.Gameplay
                     whiteFlash.alpha = 1f;
                     await UniTask.Delay(900, cancellationToken: ct);
                 }
+                // пока экран белый — игрок оказывается на потолке (акт 2)
+                if (ceilingMode && Act2Director.Instance) Act2Director.Instance.EnterCeiling();
 
                 // 4. Финальная пластина
                 Lock(false); // PlateViewer сам блокирует игрока на время показа
@@ -105,8 +111,6 @@ namespace Jam.Gameplay
 
                 // 5. Переворот
                 Lock(true);
-                if (ceilingMode)
-                    Debug.LogWarning("[Twist] Режим «дом на потолке» ещё не сделан — переворачиваем картинку.");
                 await FlipViewAsync(ct);
                 Lock(false);
 

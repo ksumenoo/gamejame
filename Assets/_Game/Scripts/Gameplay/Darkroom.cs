@@ -35,6 +35,9 @@ namespace Jam.Gameplay
         public Light redLight;
         public float redIdle = 0.5f;
         public float redDeveloping = 2.2f;
+        [Tooltip("Пластина в сумке, игрок снаружи: красный свет разгорается и пульсирует, выливаясь в коридор, — зовёт проявлять.")]
+        public float redCalling = 1.6f;
+        public float redCallingRange = 8f;
         [Tooltip("Обычный свет комнаты — гаснет, пока игрок внутри.")]
         public Light roomLight;
         public Bounds roomBounds;
@@ -83,8 +86,24 @@ namespace Jam.Gameplay
             if (redLight) redLight.intensity = redIdle;
         }
 
+        float _redRangeBase = -1f;
+
+        /// <summary>Без текста: в сумке есть пластина — красный свет проявочной зовёт из коридора.</summary>
+        void UpdateCalling()
+        {
+            if (!redLight || Busy) return;
+            if (_redRangeBase < 0f) _redRangeBase = redLight.range;
+            // зовёт, пока камеры ждут на верстаке, и когда в сумке есть что проявить
+            bool calling = ((inventory && inventory.Count > 0) || GearPickup.Waiting) && !PlayerInside;
+            float targetI = calling ? redCalling * (0.75f + 0.25f * Mathf.Sin(Time.time * 2.2f)) : redIdle;
+            float targetR = calling ? redCallingRange : _redRangeBase;
+            redLight.intensity = Mathf.MoveTowards(redLight.intensity, targetI, Time.deltaTime * 2f);
+            redLight.range = Mathf.MoveTowards(redLight.range, targetR, Time.deltaTime * 4f);
+        }
+
         void Update()
         {
+            UpdateCalling();
             if (!player) return;
             bool inside = roomBounds.size != Vector3.zero && roomBounds.Contains(player.transform.position + Vector3.up);
             if (inside == PlayerInside) return;

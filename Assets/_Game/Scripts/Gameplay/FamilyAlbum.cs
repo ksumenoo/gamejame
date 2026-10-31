@@ -35,6 +35,8 @@ namespace Jam.Gameplay
         };
 
         readonly List<RenderTexture> _rts = new();
+        /// <summary>Последняя проявленная пластина (копия) — запасная финальная пластина акта 2.</summary>
+        public Texture LastDeveloped { get; private set; }
         static readonly int Ps1UnlitId = Shader.PropertyToID("_PS1Unlit");
 
         System.Collections.IEnumerator Start()
@@ -130,6 +132,7 @@ namespace Jam.Gameplay
             Graphics.Blit(plate.Image, rt);
             _rts.Add(rt);
             f.SetDeveloped(rt);
+            LastDeveloped = rt;
         }
 
         public void Show(Texture tex, bool developed, int sceneIndex = 0)

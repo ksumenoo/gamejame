@@ -43,8 +43,22 @@ namespace Jam.Gameplay
         public RawImage houseImage;
         public Material plateMaterial;
         [Min(0f)] public float voiceDelay = 1.5f;
-        [Tooltip("Без озвучки: секунд на символ.")]
-        public float secondsPerChar = 0.06f;
+        [Tooltip("Без озвучки: секунд на букву (на точках и запятых — паузы).")]
+        public float secondsPerChar = 0.045f;
+
+        [Header("Лист")]
+        public Vector2 paperSize = new(620f, 760f);
+        public float paperMargin = 56f;
+        [Tooltip("Наклон листа, градусы.")]
+        public float paperTilt = -1.5f;
+        public int fontSize = 27;
+        [Tooltip("Рукописный шрифт письма. Пусто — берётся Resources/Fonts/MarckScript-Regular.")]
+        public Font letterFont;
+        [Tooltip("Сколько секунд письмо висит дописанным, если игрок не нажал Пробел.")]
+        public float readSeconds = 6f;
+        public string continueHint = "[Пробел]";
+        [Tooltip("Звук пера — короткий, по нему стучит печать (необязательно).")]
+        public AudioClip typeClip;
         public Color ink = new(0.16f, 0.12f, 0.1f, 1f);
 
         public event Action Closed;
@@ -85,7 +99,7 @@ namespace Jam.Gameplay
             if (player) player.InputLocked = true;
             if (interactor) interactor.Locked = true;
             if (group) group.alpha = 1f; // начинаем в полной темноте
-            if (hint) hint.text = "[Пробел] пропустить";
+            if (hint) hint.text = "";
 
             var lines = new List<string>();
             var src = textRu ? textRu : textEn;
@@ -131,61 +145,85 @@ namespace Jam.Gameplay
             if (!body || lines.Count == 0) return;
             if (paper)
             {
+                // лист — небольшой, по центру, чуть наискось: письмо в руках, а не стена текста
+                paper.sizeDelta = paperSize;
+                paper.anchoredPosition = Vector2.zero;
+                paper.localScale = Vector3.one;
+                paper.localRotation = Quaternion.Euler(0f, 0f, paperTilt);
+                body.rectTransform.sizeDelta = paperSize - new Vector2(paperMargin * 2f, paperMargin * 2f);
+                body.rectTransform.anchoredPosition = Vector2.zero;
+                body.fontSize = fontSize;
+                if (!letterFont) letterFont = Resources.Load<Font>("Fonts/MarckScript-Regular");
+                if (letterFont) body.font = letterFont; // почерк, а не книжный набор
+                body.lineSpacing = 1.05f;
                 paper.gameObject.SetActive(true);
                 var pg = paper.GetComponent<CanvasGroup>();
                 if (!pg) pg = paper.gameObject.AddComponent<CanvasGroup>();
                 pg.alpha = 0f;
-                pg.DOFade(1f, 1.5f).SetLink(gameObject);
+                pg.DOFade(1f, 1.2f).SetLink(gameObject);
+                // едва заметно «дышит» — как лист в руке в покачивающемся экипаже
+                paper.DOLocalRotate(new Vector3(0f, 0f, paperTilt + 0.6f), 3.5f).SetEase(Ease.InOutSine).SetLoops(-1, LoopType.Yoyo).SetLink(gameObject);
             }
 
-            // длительность каждой фразы: по длине голоса, пропорционально числу букв
-            int chars = 0;
-            foreach (var l in lines) chars += l.Length;
-            float total = voiceOver ? Mathf.Max(1f, voiceOver.length) : chars * secondsPerChar + lines.Count * 0.6f;
-            var durs = new float[lines.Count];
-            for (int i = 0; i < lines.Count; i++) durs[i] = Mathf.Max(1.2f, total * lines[i].Length / Mathf.Max(1, chars));
+            string full = string.Join("\n\n", lines);
+            // голос есть — печатаем в его темпе; нет — свой темп с паузами на знаках препинания
+            float total = 0f;
+            foreach (char ch in full) total += CharDelay(ch);
+            float scale = voiceOver ? Mathf.Max(1f, voiceOver.length) / Mathf.Max(0.1f, total) : 1f;
 
-            // камера ползёт по листу: чуть крупнее, медленно вниз по тексту
-            Vector2 start = paper ? paper.anchoredPosition : Vector2.zero;
-            if (paper)
-            {
-                paper.localScale = Vector3.one * 1.15f;
-                paper.DOScale(1.3f, total + voiceDelay).SetEase(Ease.Linear).SetLink(gameObject);
-                paper.DOAnchorPosY(start.y + 260f, total + voiceDelay).SetEase(Ease.InOutSine).SetLink(gameObject);
-            }
-
+            body.text = "";
             float t0 = Time.time + voiceDelay;
             await UniTask.WaitUntil(() => Time.time >= t0 || _skipped, cancellationToken: ct);
-            if (_skipped) return;
-            if (audioSource && voiceOver) audioSource.PlayOneShot(voiceOver);
+            if (audioSource && voiceOver && !_skipped) audioSource.PlayOneShot(voiceOver);
+            if (hint) hint.text = "";
 
-            var sb = new StringBuilder();
-            float lineStart = Time.time;
-            int cur = 0;
-            while (cur < lines.Count && !_skipped)
+            // буква за буквой; Пробел — дописать сразу
+            int shown = 0;
+            float next = Time.time;
+            while (shown < full.Length && !_skipped)
             {
-                float k = Mathf.Clamp01((Time.time - lineStart) / 0.8f); // строка проступает за 0,8 с
-                sb.Clear();
-                for (int i = 0; i < lines.Count; i++)
+                while (shown < full.Length && Time.time >= next)
                 {
-                    float a = i < cur ? 0.55f : i == cur ? k : 0f; // прочитанное чуть бледнеет
-                    sb.Append("<color=#").Append(ColorUtility.ToHtmlStringRGB(ink))
-                      .Append(((int)(a * 255)).ToString("X2")).Append('>')
-                      .Append(lines[i]).Append("</color>\n\n");
+                    next += CharDelay(full[shown]) * scale;
+                    shown++;
+                    if (audioSource && typeClip && !char.IsWhiteSpace(full[shown - 1]) && shown % 2 == 0)
+                        audioSource.PlayOneShot(typeClip, 0.35f);
                 }
-                body.text = sb.ToString();
-                if (Time.time - lineStart >= durs[cur]) { cur++; lineStart = Time.time; }
+                body.text = Visible(full, shown);
                 await UniTask.Yield(PlayerLoopTiming.Update, ct);
             }
-            if (_skipped) return;
-            await UniTask.Delay(900, cancellationToken: ct);
+            body.text = full;
+
+            // дописано: ждём Пробел (или несколько секунд), второе нажатие — дальше
+            _skipped = false;
+            if (hint) hint.text = continueHint;
+            float until = Time.time + readSeconds;
+            await UniTask.WaitUntil(() => Time.time >= until || _skipped, cancellationToken: ct);
+            _skipped = false;
+            if (hint) hint.text = "";
             if (paper)
             {
                 var pg = paper.GetComponent<CanvasGroup>();
                 var t = pg.DOFade(0f, 1.2f).SetLink(gameObject);
-                while (t.IsActive() && !t.IsComplete() && !_skipped) await UniTask.Yield(PlayerLoopTiming.Update, ct);
+                while (t.IsActive() && !t.IsComplete()) await UniTask.Yield(PlayerLoopTiming.Update, ct);
             }
         }
+
+        /// <summary>Напечатанная часть + ещё не напечатанная прозрачной: строки не прыгают, пока текст растёт.</summary>
+        string Visible(string full, int shown)
+        {
+            if (shown >= full.Length) return full;
+            return full.Substring(0, shown) + "<color=#00000000>" + full.Substring(shown) + "</color>";
+        }
+
+        float CharDelay(char c) => c switch
+        {
+            '.' or '!' or '?' or '…' => secondsPerChar * 7f,
+            ',' or ';' or ':' => secondsPerChar * 3f,
+            '—' => secondsPerChar * 4f,
+            '\n' => secondsPerChar * 5f,
+            _ => secondsPerChar,
+        };
 
         async UniTask PlayHouseAsync(CancellationToken ct)
         {

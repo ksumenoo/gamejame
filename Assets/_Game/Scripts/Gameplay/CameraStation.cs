@@ -24,6 +24,12 @@ namespace Jam.Gameplay
         [Tooltip("Дальше этого от камеры отойти нельзя — пластина засвечена, м.")]
         public float holdRadius = 1.8f;
 
+        [Header("Свет")]
+        [Tooltip("Горящий канделябр в той же комнате ближе этого — светло, м.")]
+        public float lightRadius = 5.5f;
+        [Tooltip("Скорость выдержки в темноте (канделябр в комнате погас): 0.5 — вдвое дольше.")]
+        [Range(0.2f, 1f)] public float darkSpeed = 0.5f;
+
         [Header("Заслонка")]
         public Transform shutter;
         [Tooltip("Смещение заслонки при открытии, в осях родителя заслонки.")]
@@ -48,6 +54,8 @@ namespace Jam.Gameplay
         [ShowNativeProperty] public State Current { get; private set; } = State.Idle;
         public float Progress => obscura ? obscura.Progress : 0f;
         public bool HasPlate => _plate != null;
+        /// <summary>Идёт выдержка, а свет в комнате погас — пластине нужно больше времени.</summary>
+        [ShowNativeProperty] public bool InDark { get; private set; }
 
         public event Action<CameraStation> ExposureBegan;
         /// <summary>Выдержку сорвали — пластина засвечена.</summary>
@@ -62,8 +70,8 @@ namespace Jam.Gameplay
 
         public string Prompt => Current switch
         {
-            State.Idle => holdToExpose ? "Открыть заслонку (держать E)" : "Открыть заслонку",
-            State.Exposing => $"Выдержка… {Mathf.RoundToInt(obscura.Progress * 100f)}%",
+            State.Idle => (holdToExpose ? "Открыть заслонку (держать E)" : "Открыть заслонку") + (GetComponent<PortableCamera>() ? "   ·   F — забрать" : ""),
+            State.Exposing => "", // ход выдержки — полоской внизу (ExposureHUD), без слов
             State.PlateReady => "Забрать пластину",
             _ => "",
         };
@@ -108,6 +116,14 @@ namespace Jam.Gameplay
 
         void Update()
         {
+            if (Current == State.Exposing && obscura)
+            {
+                // свет проверяем всю выдержку: Маргарет может погасить канделябр посреди кадра
+                InDark = !Candelabra.IsLightAt(obscura.transform.position, lightRadius);
+                obscura.Speed = InDark ? darkSpeed : 1f;
+            }
+            else InDark = false;
+
             if (Current != State.Exposing || !_holder || !holdToExpose) return;
             Vector3 d = _holder.transform.position - transform.position;
             d.y = 0f;
