@@ -1,0 +1,129 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d76443831dc9a7b42bbf116fd57a6a40, type: 3}
+  m_Name: SoundBank
+  m_EditorClassIdentifier: Assembly-CSharp::Jam.Audio.SoundBank
+  entries:
+  - key: footstep
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 1
+    maxDistance: 15
+  - key: shutter_open
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 1
+    maxDistance: 15
+  - key: shutter_close
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 1
+    maxDistance: 15
+  - key: exposure_tick
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 1
+    maxDistance: 15
+  - key: develop
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 1
+    maxDistance: 15
+  - key: sting
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 0
+    maxDistance: 15
+  - key: flash
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 0
+    maxDistance: 15
+  - key: flash_empty
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 0
+    maxDistance: 15
+  - key: candle_out
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 0
+    maxDistance: 15
+  - key: candle_light
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 0
+    maxDistance: 15
+  - key: door_open
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 1
+    maxDistance: 15
+  - key: door_close
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 1
+    maxDistance: 15
+  - key: door_slam
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 1
+    maxDistance: 15
+  - key: margaret_whisper
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 1
+    maxDistance: 15
+  - key: margaret_chase
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 0
+    maxDistance: 15
+  - key: caught
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 0
+    maxDistance: 15
+  - key: ambient
+    clips: []
+    volume: 0.5
+    pitchJitter: 0.08
+    spatial: 0
+    maxDistance: 15
+  - key: obscura_raise
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 0
+    maxDistance: 15
+  - key: scene_align
+    clips: []
+    volume: 1
+    pitchJitter: 0.08
+    spatial: 1
+    maxDistance: 15

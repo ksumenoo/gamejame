@@ -14,13 +14,6 @@
       "dependencies": {},
       "hash": "b11d62b28c5fcbe242988f9f8d451deb925cf23b"
     },
-    "com.singularitygroup.hotreload": {
-      "version": "https://gitlab.com/singularitygroup/hot-reload-for-unity.git",
-      "depth": 0,
-      "source": "git",
-      "dependencies": {},
-      "hash": "9388edfdea758423eae37d917d49d27b1952dbfa"
-    },
     "com.tayx.graphy": {
       "version": "https://github.com/Tayx94/graphy.git",
       "depth": 0,

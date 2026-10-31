@@ -19,6 +19,8 @@ namespace Jam.Gameplay
     {
         public CanvasGroup group;
         public RawImage image;
+        [Tooltip("Подпись под снимком (альбом). Пусто — не показывается.")]
+        public Text caption;
         [Tooltip("Материал на шейдере Jam/PlateDisplay")]
         public Material plateMaterial;
         [Min(0.1f)] public float developSeconds = 3f;
@@ -34,6 +36,8 @@ namespace Jam.Gameplay
 
         public bool IsOpen { get; private set; }
         public event Action<Plate> Closed;
+        /// <summary>На пластине что-то резкое — момент «ой».</summary>
+        public event Action Stung;
 
         Material _mat;
         InputAction _close;
@@ -71,7 +75,25 @@ namespace Jam.Gameplay
         /// <summary>Показать пластину и дождаться, пока игрок её закроет.</summary>
         public async UniTask ShowAsync(Plate plate, bool sting)
         {
-            if (plate == null || !plate.Image || IsOpen) return;
+            if (plate == null || !plate.Image) return;
+            await ShowTextureAsync(plate.Image, sting, true, plate.Blank ? 1.9f : -1f);
+            Closed?.Invoke(plate);
+        }
+
+        static readonly int FlipId = Shader.PropertyToID("_Flip");
+        static readonly int BrightnessId = Shader.PropertyToID("_Brightness");
+        float _baseBrightness = -1f;
+        static readonly int GrainId = Shader.PropertyToID("_Grain");
+        static readonly int RedKeepId = Shader.PropertyToID("_RedKeep");
+        static readonly int ContrastId = Shader.PropertyToID("_Contrast");
+        static readonly int OverlayId = Shader.PropertyToID("_OverlayStrength");
+        float[] _baseLook;
+
+        /// <summary>Показать любую картинку как пластину (финальная пластина от художников). flip — перевернуть как обскура.</summary>
+        /// <param name="clean">Снимок-подсказка: меньше зерна и царапин, без красного акцента — чтобы читалась комната.</param>
+        public async UniTask ShowTextureAsync(Texture texture, bool sting, bool flip, float brightness = -1f, bool clean = false, string caption = null)
+        {
+            if (!texture || IsOpen) return;
             _cts?.Cancel();
             _cts?.Dispose();
             _cts = CancellationTokenSource.CreateLinkedTokenSource(destroyCancellationToken);
@@ -81,9 +103,25 @@ namespace Jam.Gameplay
             SetPlayerLocked(true);
             try
             {
-                image.texture = plate.Image;
+                image.texture = texture;
+                if (this.caption) this.caption.text = caption ?? "";
                 image.rectTransform.localScale = Vector3.one;
-                if (_mat) _mat.SetFloat(DevelopId, 0f);
+                // снимок из альбома — обычный отпечаток, без «пластинного» шейдера: тот съедает тёмные места, и комната не читается
+                image.material = clean ? null : _mat;
+                image.color = clean ? new Color(1f, 0.93f, 0.8f) : Color.white;
+                if (_mat)
+                {
+                    _mat.SetFloat(DevelopId, 0f);
+                    _mat.SetFloat(FlipId, flip ? 1f : 0f);
+                    // пустая (засвеченная) пластина — белёсая
+                    if (_baseBrightness < 0f) _baseBrightness = _mat.GetFloat(BrightnessId);
+                    _mat.SetFloat(BrightnessId, brightness >= 0f ? brightness : _baseBrightness);
+                    _baseLook ??= new[] { _mat.GetFloat(GrainId), _mat.GetFloat(RedKeepId), _mat.GetFloat(ContrastId), _mat.GetFloat(OverlayId) };
+                    _mat.SetFloat(GrainId, clean ? 0.02f : _baseLook[0]);
+                    _mat.SetFloat(RedKeepId, clean ? 0f : _baseLook[1]);
+                    _mat.SetFloat(ContrastId, clean ? 1.15f : _baseLook[2]);
+                    _mat.SetFloat(OverlayId, clean ? 0.25f : _baseLook[3]);
+                }
 
                 await WaitTween(group.DOFade(1f, 0.25f).SetLink(gameObject), ct);
                 if (audioSource && developClip) audioSource.PlayOneShot(developClip);
@@ -95,6 +133,7 @@ namespace Jam.Gameplay
                 if (sting)
                 {
                     if (audioSource && stingClip) audioSource.PlayOneShot(stingClip);
+                    Stung?.Invoke();
                     image.rectTransform.DOPunchScale(Vector3.one * 0.06f, 0.35f, 8, 0.6f).SetLink(gameObject);
                 }
 
@@ -110,7 +149,6 @@ namespace Jam.Gameplay
                 IsOpen = false;
                 SetPlayerLocked(false);
             }
-            Closed?.Invoke(plate);
         }
 
         /// <summary>Прервать показ (смерть, катсцена).</summary>

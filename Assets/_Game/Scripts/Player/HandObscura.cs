@@ -32,7 +32,7 @@ namespace Jam.Player
         [Min(1f)] public float framesPerSecond = 15f;
         [Range(20f, 100f)] public float fieldOfView = 60f;
         public LayerMask cullingMask = ~0;
-        [Range(0f, 2f)] public float brightness = 0.8f;
+        [Range(0f, 2f)] public float brightness = 1.1f;
 
         [Header("Ощущение")]
         [Range(0.1f, 1f)] public float speedMultiplier = 0.4f;
@@ -45,6 +45,16 @@ namespace Jam.Player
 
         public event Action<HandObscura> Raised;
         public event Action<HandObscura> Lowered;
+        /// <summary>Игрок встал точно на точку обзора сцены — картинка «защёлкнулась».</summary>
+        public event Action<HandObscura, Jam.Gameplay.PastScene> SceneAligned;
+
+        [Header("Тепло-холодно")]
+        [Tooltip("С какого совпадения картинка считается «защёлкнутой».")]
+        [Range(0.5f, 1f)] public float alignLock = 0.95f;
+
+        /// <summary>Совпадение с ближайшей точкой обзора сейчас (0..1).</summary>
+        [ShowNativeProperty] public float Alignment { get; private set; }
+        Jam.Gameplay.PastScene _locked;
 
         public RenderTexture Texture => _rt;
 
@@ -93,8 +103,8 @@ namespace Jam.Player
                 _mat.SetFloat(Develop, 1f);
                 _mat.SetFloat(LiveGrain, 1f);
                 _mat.SetFloat(Brightness, brightness);
-                _mat.SetFloat(Vignette, 1.5f);
-                _mat.SetFloat(Grain, 0.12f);
+                _mat.SetFloat(Vignette, 1.0f);
+                _mat.SetFloat(Grain, 0.05f);
                 _mat.SetFloat(OverlayStrength, 0f);
             }
             if (view)
@@ -107,7 +117,7 @@ namespace Jam.Player
             if (handModel)
             {
                 _handUpPos = handModel.localPosition;
-                _handDownPos = _handUpPos + new Vector3(0f, -0.35f, 0f);
+                _handDownPos = _handUpPos + new Vector3(0f, -0.16f, 0f); // опущена — верх ящика виден снизу экрана
                 handModel.localPosition = _handDownPos;
             }
 
@@ -137,6 +147,7 @@ namespace Jam.Player
             if (want != IsHeld) SetHeld(want);
 
             if (!IsHeld) return;
+            UpdateAlignment();
             _timer += Time.deltaTime;
             if (_timer >= 1f / framesPerSecond)
             {
@@ -171,6 +182,33 @@ namespace Jam.Player
                     Raised?.Invoke(this);
                 });
             }
+        }
+
+        /// <summary>Чем точнее встал — тем спокойнее зерно и ярче картинка; на точке — щелчок.</summary>
+        void UpdateAlignment()
+        {
+            if (!eyes) return;
+            Jam.Gameplay.PastScene best = null;
+            float a = 0f;
+            foreach (var s in Jam.Gameplay.PastScene.All)
+            {
+                if (!s || !s.IsActive) continue;
+                float v = s.Alignment(eyes.transform.position, eyes.transform.forward);
+                if (v > a) { a = v; best = s; }
+            }
+            Alignment = a;
+            if (_mat)
+            {
+                _mat.SetFloat(Grain, Mathf.Lerp(0.05f, 0.012f, a * a));
+                _mat.SetFloat(Brightness, brightness * Mathf.Lerp(1f, 1.25f, a * a));
+            }
+            if (best && a >= alignLock && _locked != best)
+            {
+                _locked = best;
+                if (frame) frame.DOPunchScale(Vector3.one * 0.04f, 0.3f, 6, 0.5f).SetLink(gameObject);
+                SceneAligned?.Invoke(this, best);
+            }
+            else if (_locked && (a < 0.6f || best != _locked)) _locked = null;
         }
 
         void RenderNow()

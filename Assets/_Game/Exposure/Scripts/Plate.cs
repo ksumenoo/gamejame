@@ -25,6 +25,13 @@ namespace Jam.Exposure
         public float Duration;
         public float TakenAt;
         public bool Flash;
+        /// <summary>Где стоял объектив и куда смотрел в начале выдержки — по этому сцена понимает, «её» ли это кадр.</summary>
+        public Vector3 Position;
+        public Vector3 Forward;
+        /// <summary>Номера сцен прошлого, которые сложились в этом кадре (проставляет StoryDirector в момент съёмки).</summary>
+        public readonly List<int> Scenes = new();
+        /// <summary>Проявлена, но ни одна сцена не сложилась — пластина «засвечена», пустая.</summary>
+        public bool Blank;
         public readonly List<SubjectReading> Readings = new();
 
         public bool TryGetReading(ExposureSubject subject, out SubjectReading reading)

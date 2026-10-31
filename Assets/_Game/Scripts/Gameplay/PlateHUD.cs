@@ -5,13 +5,16 @@ using UnityEngine;
 namespace Jam.Gameplay
 {
     /// <summary>
-    /// Временный показ: когда игрок забирает пластину, она сразу открывается на весь экран.
-    /// Когда появится проявочная, этот компонент выключаем — пластины будут показываться там.
+    /// Отладочный режим без проявочной: пластина «проявляется» сразу при подборе —
+    /// открывается на весь экран и засчитывается StoryDirector.
+    /// В обычной игре выключено (autoDevelopOnPickup = false), проявка идёт в Darkroom.
     /// </summary>
     public class PlateHUD : MonoBehaviour
     {
         public PlateInventory inventory;
         public PlateViewer viewer;
+        [Tooltip("Проявлять пластину сразу при подборе (если проявочной нет или для отладки).")]
+        public bool autoDevelopOnPickup;
 
         int _lastCount;
 
@@ -20,11 +23,12 @@ namespace Jam.Gameplay
 
         void OnChanged(PlateInventory inv)
         {
-            if (viewer && inv.Count > _lastCount)
+            if (autoDevelopOnPickup && inv.Count > _lastCount)
             {
                 var plate = inv.Plates[inv.Count - 1];
-                bool sting = plate.Readings.Any(r => r.IsSharp);
-                viewer.ShowAsync(plate, sting).Forget();
+                var scene = StoryDirector.Instance ? StoryDirector.Instance.TryDevelop(plate) : null;
+                bool sting = scene || plate.Readings.Any(r => r.IsSharp);
+                if (viewer) viewer.ShowAsync(plate, sting).Forget();
             }
             _lastCount = inv.Count;
         }

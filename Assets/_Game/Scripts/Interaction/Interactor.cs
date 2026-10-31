@@ -20,11 +20,15 @@ namespace Jam.Interaction
     public class Interactor : MonoBehaviour
     {
         public Camera viewCamera;
-        [Min(0.5f)] public float range = 2.2f;
+        [Min(0.5f)] public float range = 3f;
+        [Tooltip("Если точный луч ничего не задел — пробуем «толстым» лучом этого радиуса, чтобы не целиться в пиксель.")]
+        [Min(0f)] public float assistRadius = 0.15f;
         public LayerMask mask = ~0;
 
         public IInteractable Current { get; private set; }
         public bool Locked { get; set; }
+        /// <summary>E зажата прямо сейчас (для действий «держать E»).</summary>
+        public bool UseHeld => _use != null && _use.IsPressed();
 
         public event Action<IInteractable> FocusChanged;
         public event Action<IInteractable> Interacted;
@@ -49,6 +53,10 @@ namespace Jam.Interaction
                 var ray = viewCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
                 if (Physics.Raycast(ray, out var hit, range, mask, QueryTriggerInteraction.Collide))
                     found = hit.collider.GetComponentInParent<IInteractable>();
+                // тонкие предметы (подставка канделябра, ящик камеры) — прощаем промах на пару сантиметров
+                if (found == null && assistRadius > 0f &&
+                    Physics.SphereCast(ray, assistRadius, out var sh, range, mask, QueryTriggerInteraction.Collide))
+                    found = sh.collider.GetComponentInParent<IInteractable>();
             }
 
             if (!ReferenceEquals(found, Current))

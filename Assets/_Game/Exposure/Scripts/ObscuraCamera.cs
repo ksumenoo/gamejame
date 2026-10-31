@@ -47,6 +47,8 @@ namespace Jam.Exposure
 
         public event Action<ObscuraCamera> ExposureStarted;
         public event Action<ObscuraCamera, Plate> ExposureFinished;
+        /// <summary>Выдержку прервали (игрок отпустил E или отошёл) — пластины не будет.</summary>
+        public event Action<ObscuraCamera> ExposureCancelled;
 
         Camera _cam;
         Material _accumulate;
@@ -54,6 +56,8 @@ namespace Jam.Exposure
         int _ticksTotal, _ticksDone;
 
         readonly Dictionary<ExposureSubject, List<Vector3>> _samples = new();
+        Coroutine _routine;
+        Vector3 _startPos, _startFwd;
 
         static readonly int PrevTexId = Shader.PropertyToID("_PrevTex");
         static readonly int WeightId = Shader.PropertyToID("_Weight");
@@ -88,7 +92,21 @@ namespace Jam.Exposure
         public void BeginExposure(float duration, bool flashAtEnd)
         {
             if (IsExposing || _accumulate == null) return;
-            StartCoroutine(ExposeRoutine(Mathf.Max(frameInterval, duration), flashAtEnd));
+            _routine = StartCoroutine(ExposeRoutine(Mathf.Max(frameInterval, duration), flashAtEnd));
+        }
+
+        /// <summary>Прервать выдержку: накопленное выбрасывается, пластины нет.</summary>
+        public void CancelExposure()
+        {
+            if (!IsExposing) return;
+            if (_routine != null) StopCoroutine(_routine);
+            _routine = null;
+            ReleaseRT(ref _accumA);
+            ReleaseRT(ref _accumB);
+            _samples.Clear();
+            IsExposing = false;
+            Progress = 0f;
+            ExposureCancelled?.Invoke(this);
         }
 
         /// <summary>
@@ -133,6 +151,8 @@ namespace Jam.Exposure
             _ticksTotal = Mathf.Max(1, Mathf.RoundToInt(duration / frameInterval));
             _ticksDone = 0;
             float startTime = Time.time;
+            _startPos = transform.position;
+            _startFwd = transform.forward;
 
             ExposureStarted?.Invoke(this);
 
@@ -166,6 +186,7 @@ namespace Jam.Exposure
 
             IsExposing = false;
             Progress = 1f;
+            _routine = null;
             ExposureFinished?.Invoke(this, plate);
         }
 
@@ -212,6 +233,8 @@ namespace Jam.Exposure
                 Duration = duration,
                 TakenAt = startTime,
                 Flash = flash,
+                Position = _startPos,
+                Forward = _startFwd,
             };
 
             var subjects = new HashSet<ExposureSubject>(_samples.Keys);

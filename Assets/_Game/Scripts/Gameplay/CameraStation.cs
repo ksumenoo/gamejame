@@ -1,3 +1,4 @@
+using System;
 using DG.Tweening;
 using Jam.Exposure;
 using Jam.Interaction;
@@ -7,7 +8,8 @@ using UnityEngine;
 namespace Jam.Gameplay
 {
     /// <summary>
-    /// Камера-обскура как предмет в мире: E — открыть заслонку, ждать выдержку, E — забрать пластину.
+    /// Камера-обскура как предмет в мире: держать E — заслонка открыта, идёт выдержка; отпустил или отошёл — пластина засвечена.
+    /// E — забрать готовую пластину.
     /// Корень стоит на полу, ObscuraCamera — в дочернем объекте на уровне отверстия.
     /// Анимации заслонки и корпуса — DOTween.
     /// </summary>
@@ -17,11 +19,18 @@ namespace Jam.Gameplay
 
         public ObscuraCamera obscura;
         [Min(0.5f)] public float exposureSeconds = 6f;
+        [Tooltip("Выдержку надо держать E. Отпустил — пластина засвечена.")]
+        public bool holdToExpose = true;
+        [Tooltip("Дальше этого от камеры отойти нельзя — пластина засвечена, м.")]
+        public float holdRadius = 1.8f;
 
         [Header("Заслонка")]
         public Transform shutter;
         [Tooltip("Смещение заслонки при открытии, в осях родителя заслонки.")]
         public Vector3 shutterOpenOffset = new(0f, 0.12f, 0f);
+        [Tooltip("Где заслонка в открытом положении. Если задано — offset не используется. " +
+                 "В Blender: копия заслонки с именем Shutter_Open, поставленная как открытая.")]
+        public Transform shutterOpenTarget;
         [Min(0.01f)] public float shutterOpenTime = 0.22f;
         [Min(0.01f)] public float shutterCloseTime = 0.12f;
 
@@ -37,14 +46,23 @@ namespace Jam.Gameplay
         public AudioClip tickLoop;
 
         [ShowNativeProperty] public State Current { get; private set; } = State.Idle;
+        public float Progress => obscura ? obscura.Progress : 0f;
+        public bool HasPlate => _plate != null;
+
+        public event Action<CameraStation> ExposureBegan;
+        /// <summary>Выдержку сорвали — пластина засвечена.</summary>
+        public event Action<CameraStation> ExposureRuined;
+        public event Action<CameraStation> PlateDone;
 
         Plate _plate;
-        Vector3 _shutterClosedPos;
+        Interactor _holder;
+        Vector3 _shutterClosedPos, _shutterOpenPos;
+        Quaternion _shutterClosedRot, _shutterOpenRot;
         Sequence _shutterSeq;
 
         public string Prompt => Current switch
         {
-            State.Idle => "Открыть заслонку",
+            State.Idle => holdToExpose ? "Открыть заслонку (держать E)" : "Открыть заслонку",
             State.Exposing => $"Выдержка… {Mathf.RoundToInt(obscura.Progress * 100f)}%",
             State.PlateReady => "Забрать пластину",
             _ => "",
@@ -53,11 +71,65 @@ namespace Jam.Gameplay
         void Awake()
         {
             if (!obscura) obscura = GetComponentInChildren<ObscuraCamera>();
-            if (shutter) _shutterClosedPos = shutter.localPosition;
+            if (shutter)
+            {
+                _shutterClosedPos = shutter.localPosition;
+                _shutterClosedRot = shutter.localRotation;
+                if (shutterOpenTarget)
+                {
+                    // открытое положение — в осях родителя заслонки
+                    var p = shutter.parent;
+                    _shutterOpenPos = p ? p.InverseTransformPoint(shutterOpenTarget.position) : shutterOpenTarget.position;
+                    _shutterOpenRot = p ? Quaternion.Inverse(p.rotation) * shutterOpenTarget.rotation : shutterOpenTarget.rotation;
+                    var r = shutterOpenTarget.GetComponent<Renderer>();
+                    if (r) r.enabled = false; // это только метка
+                }
+                else
+                {
+                    _shutterOpenPos = _shutterClosedPos + shutterOpenOffset;
+                    _shutterOpenRot = _shutterClosedRot;
+                }
+            }
         }
 
-        void OnEnable() { if (obscura) obscura.ExposureFinished += OnExposureFinished; }
-        void OnDisable() { if (obscura) obscura.ExposureFinished -= OnExposureFinished; }
+        void OnEnable()
+        {
+            if (!obscura) return;
+            obscura.ExposureFinished += OnExposureFinished;
+            obscura.ExposureCancelled += OnExposureCancelled;
+        }
+
+        void OnDisable()
+        {
+            if (!obscura) return;
+            obscura.ExposureFinished -= OnExposureFinished;
+            obscura.ExposureCancelled -= OnExposureCancelled;
+        }
+
+        void Update()
+        {
+            if (Current != State.Exposing || !_holder || !holdToExpose) return;
+            Vector3 d = _holder.transform.position - transform.position;
+            d.y = 0f;
+            if (!_holder.UseHeld || d.magnitude > holdRadius) Ruin();
+        }
+
+        /// <summary>Сорвать выдержку (отпустили E, отошли, Маргарет схватила).</summary>
+        public void Ruin()
+        {
+            if (Current != State.Exposing || !obscura) return;
+            obscura.CancelExposure(); // дальше — OnExposureCancelled
+        }
+
+        /// <summary>Забрать готовую пластину (переносная камера забирает её сама при подъёме).</summary>
+        public Plate TakePlate()
+        {
+            if (Current != State.PlateReady) return null;
+            var p = _plate;
+            _plate = null;
+            Current = State.Idle;
+            return p;
+        }
 
         public bool CanInteract(Interactor who) => Current switch
         {
@@ -71,6 +143,7 @@ namespace Jam.Gameplay
             switch (Current)
             {
                 case State.Idle:
+                    _holder = who;
                     OpenShutter();
                     break;
                 case State.PlateReady:
@@ -93,16 +166,30 @@ namespace Jam.Gameplay
             Play(shutterOpenClip);
             if (audioSource && tickLoop) { audioSource.clip = tickLoop; audioSource.loop = true; audioSource.Play(); }
             obscura.BeginExposure(exposureSeconds, false);
+            ExposureBegan?.Invoke(this);
+        }
+
+        void OnExposureCancelled(ObscuraCamera cam)
+        {
+            if (Current != State.Exposing) return;
+            _holder = null;
+            Current = State.Idle;
+            AnimateShutter(open: false);
+            if (audioSource && audioSource.loop) { audioSource.Stop(); audioSource.loop = false; }
+            Play(shutterCloseClip);
+            ExposureRuined?.Invoke(this);
         }
 
         void OnExposureFinished(ObscuraCamera cam, Plate plate)
         {
             if (Current != State.Exposing) return; // выдержку запустил не игрок (например, отладочный тестер)
             _plate = plate;
+            _holder = null;
             Current = State.PlateReady;
             AnimateShutter(open: false);
             if (audioSource && audioSource.loop) { audioSource.Stop(); audioSource.loop = false; }
             Play(shutterCloseClip);
+            PlateDone?.Invoke(this);
         }
 
         void AnimateShutter(bool open)
@@ -112,15 +199,12 @@ namespace Jam.Gameplay
 
             if (shutter)
             {
-                var target = open ? _shutterClosedPos + shutterOpenOffset : _shutterClosedPos;
-                _shutterSeq.Append(shutter.DOLocalMove(target, open ? shutterOpenTime : shutterCloseTime)
-                                          .SetEase(open ? Ease.OutCubic : Ease.InQuad));
+                float t = open ? shutterOpenTime : shutterCloseTime;
+                var ease = open ? Ease.OutCubic : Ease.InQuad;
+                _shutterSeq.Append(shutter.DOLocalMove(open ? _shutterOpenPos : _shutterClosedPos, t).SetEase(ease));
+                _shutterSeq.Join(shutter.DOLocalRotateQuaternion(open ? _shutterOpenRot : _shutterClosedRot, t).SetEase(ease));
             }
-            if (body)
-            {
-                // щелчок: корпус коротко вздрагивает, когда заслонка доходит до упора
-                _shutterSeq.Append(body.DOShakeRotation(0.15f, clickShakeStrength, 18, 90f, true));
-            }
+            // корпус больше не трясём: тряска поворачивала всю модель, и заслонка уезжала криво
         }
 
         void Play(AudioClip clip)

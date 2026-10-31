@@ -136,7 +136,7 @@ namespace Jam.Gameplay
         /// <summary>Ближайшая камера, которая его видит; если таких нет — просто ближайшая.</summary>
         Transform PickCameraToStareAt()
         {
-            var cams = FindObjectsByType<ObscuraCamera>(FindObjectsSortMode.None);
+            var cams = FindObjectsByType<ObscuraCamera>();
             Transform best = null, bestVisible = null;
             float bestD = float.MaxValue, bestVisD = float.MaxValue;
             foreach (var c in cams)

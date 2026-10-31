@@ -39,6 +39,10 @@ namespace Jam.Player
         public bool IsSneaking { get; private set; }
         /// <summary>Множитель скорости от снаряжения (поднятая обскура — 0.4). Бег при множителе меньше 1 запрещён.</summary>
         public float SpeedMultiplier { get; set; } = 1f;
+        /// <summary>Множители мыши по осям: (-1, -1) — управление для перевёрнутой картинки после перелома.</summary>
+        public Vector2 LookInvert { get; set; } = Vector2.one;
+        /// <summary>-1 — стрейф наоборот (картинка перевёрнута, лево и право на экране поменялись).</summary>
+        public float StrafeInvert { get; set; } = 1f;
 
         /// <summary>Вызывается на каждый шаг — сюда вешаем звук шагов.</summary>
         public event System.Action<FirstPersonController> Footstep;
@@ -95,6 +99,7 @@ namespace Jam.Player
 
         void Look(Vector2 delta)
         {
+            delta = Vector2.Scale(delta, LookInvert);
             transform.Rotate(0f, delta.x * lookSensitivity, 0f);
             _pitch = Mathf.Clamp(_pitch - delta.y * lookSensitivity, -maxPitch, maxPitch);
             if (cameraPivot) cameraPivot.localRotation = Quaternion.Euler(_pitch, 0f, 0f);
@@ -106,7 +111,7 @@ namespace Jam.Player
             IsRunning = !InputLocked && !IsSneaking && SpeedMultiplier >= 0.99f && _run.IsPressed() && input.y > 0.1f;
             float targetSpeed = (IsSneaking ? sneakSpeed : IsRunning ? runSpeed : walkSpeed) * SpeedMultiplier;
 
-            Vector3 wish = transform.right * input.x + transform.forward * input.y;
+            Vector3 wish = transform.right * (input.x * StrafeInvert) + transform.forward * input.y;
             if (wish.sqrMagnitude > 1f) wish.Normalize();
 
             Vector3 targetVel = wish * targetSpeed;
