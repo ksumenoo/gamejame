@@ -8,7 +8,7 @@ namespace Jam.UI
 {
     /// <summary>
     /// Пауза в игре: Продолжить / Настройки / В меню. Ставится сама в любую сцену с игроком.
-    /// Открывается клавишей P и сама, когда курсор перестал быть захвачен (Esc в браузере, ушёл во вкладку) —
+    /// Открывается клавишей Tab и сама, когда курсор перестал быть захвачен (Esc в браузере, ушёл во вкладку) —
     /// но не во время письма, проявки, смерти и просмотра пластины: там игрок и так заблокирован (InputLocked).
     /// После «Продолжить» в браузере курсор захватит следующий клик по игре.
     /// </summary>
@@ -19,7 +19,7 @@ namespace Jam.UI
         FirstPersonController _player;
         Canvas _canvas;
         CanvasGroup _group;
-        RectTransform _main, _settings;
+        RectTransform _main, _settings, _help;
         bool _wasLocked;
         float _openedAt;
 
@@ -56,10 +56,35 @@ namespace Jam.UI
             MenuUI.Spacer(_main, 40f);
             MenuUI.Button(_main, "Продолжить", 48, Close);
             MenuUI.Button(_main, "Настройки", 48, () => Show(_settings));
+            MenuUI.Button(_main, "Помощь", 48, OpenHelp);
             if (GameSession.HasMenu) MenuUI.Button(_main, "В меню", 48, GameSession.ReturnToMenu);
 
             _settings = MenuUI.Settings(root, 150f, 260f, () => Show(_main));
             SetVisible(false);
+        }
+
+        bool _helpGhost;
+
+        /// <summary>Помощь собирается при открытии: во втором акте — правила призрака, в первом — фотографа.</summary>
+        void OpenHelp()
+        {
+            bool ghost = Candelabra.GhostMode;
+            if (!_help || _helpGhost != ghost)
+            {
+                if (_help) Destroy(_help.gameObject);
+                _helpGhost = ghost;
+                _help = MenuUI.Stretch(MenuUI.Rect("Help", _canvas.transform));
+                var howTo = MenuUI.Column(_help, "HowTo", 150f, 470f, 900f);
+                MenuUI.Label(howTo, "Помощь", 64, MenuUI.Paper, MenuUI.Bold, 100f);
+                MenuUI.Label(howTo, "Как играть", 38, MenuUI.Red, MenuUI.Bold, 56f);
+                MenuUI.Paragraph(howTo, ghost ? MainMenu.GhostHelpText : MainMenu.HelpText, 26, 900f);
+                MenuUI.Spacer(howTo, 16f);
+                MenuUI.Button(howTo, "Назад", 44, () => Show(_main));
+                var keys = MenuUI.Column(_help, "Controls", 1150f, 370f, 650f);
+                MenuUI.Label(keys, "Управление", 38, MenuUI.Red, MenuUI.Bold, 56f);
+                MenuUI.Paragraph(keys, MainMenu.ControlsText, 26, 650f).lineSpacing = 1.35f;
+            }
+            Show(_help);
         }
 
         void OnDestroy()
@@ -75,17 +100,18 @@ namespace Jam.UI
 
             if (IsOpen)
             {
-                bool back = kb != null && (kb.pKey.wasPressedThisFrame || kb.escapeKey.wasPressedThisFrame);
+                bool back = kb != null && (kb.tabKey.wasPressedThisFrame || kb.escapeKey.wasPressedThisFrame);
                 if (back && Time.unscaledTime - _openedAt > 0.25f)
                 {
-                    if (_settings && _settings.gameObject.activeSelf && !kb.pKey.wasPressedThisFrame) Show(_main);
+                    bool sub = (_settings && _settings.gameObject.activeSelf) || (_help && _help.gameObject.activeSelf);
+                    if (sub && !kb.tabKey.wasPressedThisFrame) Show(_main);
                     else Close();
                 }
             }
             else if (!_player.InputLocked)
             {
                 bool lostCursor = _wasLocked && !locked;   // Esc в браузере, alt-tab, другая вкладка
-                bool pressedP = kb != null && kb.pKey.wasPressedThisFrame;
+                bool pressedP = kb != null && kb.tabKey.wasPressedThisFrame;
                 if (lostCursor || pressedP) Open();
             }
             _wasLocked = locked;
@@ -113,6 +139,7 @@ namespace Jam.UI
         {
             MenuUI.Show(_main, panel == _main);
             MenuUI.Show(_settings, panel == _settings);
+            if (_help) MenuUI.Show(_help, panel == _help);
         }
 
         void SetVisible(bool on)

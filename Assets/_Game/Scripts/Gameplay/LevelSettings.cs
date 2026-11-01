@@ -46,8 +46,9 @@ namespace Jam.Gameplay
             if (Application.isPlaying) ApplySnap();
         }
 
-        void ApplySnap() =>
-            Shader.SetGlobalVector(SnapId, vertexSnap ? new Vector4(snapResolution.x, snapResolution.y, 0, 0) : Vector4.zero);
+        /// <summary>Дрожание вершин; выключено, если игрок выбрал «Сглаженная картинка».</summary>
+        public void ApplySnap() =>
+            Shader.SetGlobalVector(SnapId, vertexSnap && !GameSettings.Smooth ? new Vector4(snapResolution.x, snapResolution.y, 0, 0) : Vector4.zero);
 
         void SetupLowRes()
         {
@@ -103,7 +104,7 @@ namespace Jam.Gameplay
             if (_mat)
             {
                 _mat.SetFloat(LevelsId, colorLevels);
-                _mat.SetFloat(DitherId, dither);
+                _mat.SetFloat(DitherId, GameSettings.Smooth ? 0f : dither);
             }
         }
 

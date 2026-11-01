@@ -90,7 +90,7 @@ namespace Jam.Gameplay
             if (twist) twist.Act2Started += Begin;
             Candelabra.AnyExtinguished += OnCandleOut;
             Door.AnyDoor += OnDoor;
-            if (photographer) { photographer.Escaped += OnEscaped; photographer.Relit += OnRelit; }
+            if (photographer) { photographer.Escaped += OnEscaped; photographer.Relit += OnRelit; photographer.Froze += OnFroze; }
         }
 
         bool _relitOnce;
@@ -108,7 +108,7 @@ namespace Jam.Gameplay
             if (twist) twist.Act2Started -= Begin;
             Candelabra.AnyExtinguished -= OnCandleOut;
             Door.AnyDoor -= OnDoor;
-            if (photographer) { photographer.Escaped -= OnEscaped; photographer.Relit -= OnRelit; }
+            if (photographer) { photographer.Escaped -= OnEscaped; photographer.Relit -= OnRelit; photographer.Froze -= OnFroze; }
             Candelabra.GhostMode = false;
             Door.GhostMode = false;
             _debugJump.Dispose();
@@ -268,6 +268,53 @@ namespace Jam.Gameplay
             else if (kind == "door_open") photographer.HearNoise(d.transform.position, 0.2f, d);
         }
 
+        /// <summary>Шкала полна — фотограф оцепенел. Последняя пугалка: подойти и держать E. После — бежит к двери.</summary>
+        void OnFroze(LivingPhotographer p)
+        {
+            if (!Active || _finished || !p) return;
+            if (_fearUi) _fearUi.Hide();
+            var scare = p.gameObject.AddComponent<PhotographerFinalScare>();
+            scare.whiteFlash = whiteFlash;
+            scare.Done += () =>
+            {
+                JamAudio.Play("flash", p.transform.position + Vector3.up * 1.5f);
+                JamAudio.Play("sting");
+                if (whiteFlash)
+                {
+                    whiteFlash.DOKill();
+                    whiteFlash.alpha = 1f;
+                    whiteFlash.DOFade(0f, 1.4f).SetLink(gameObject);
+                }
+                p.Flee();
+            };
+        }
+
+        /// <summary>Куда упала пластина: у стула возле входной двери, со стороны дома; иначе — в паре шагов от двери.</summary>
+        Vector3 DroppedPlateSpot(out float yaw)
+        {
+            Vector3 exitPos = photographer && photographer.exit ? photographer.exit.position : (player ? player.transform.position : Vector3.zero);
+            var room = FindAnyObjectByType<Darkroom>();
+            Vector3 inward = room ? room.transform.position - exitPos : Vector3.forward;
+            inward.y = 0f;
+            inward = inward.sqrMagnitude > 1e-4f ? inward.normalized : Vector3.forward;
+            Vector3 best = exitPos + inward * 1.6f;
+            float bestD = 4.5f;
+            foreach (var r in FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None))
+            {
+                if (!r.enabled) continue;
+                string n = r.name.ToLowerInvariant() + "|" + (r.transform.parent ? r.transform.parent.name.ToLowerInvariant() : "");
+                if (!n.Contains("chair")) continue;
+                Vector3 c = r.bounds.center;
+                float d = new Vector2(c.x - exitPos.x, c.z - exitPos.z).magnitude;
+                if (d < bestD) { bestD = d; best = c + inward * 0.6f; }
+            }
+            yaw = Quaternion.LookRotation(inward, Vector3.up).eulerAngles.y;
+            if (Physics.Raycast(new Vector3(best.x, exitPos.y + 2f, best.z), Vector3.down, out var hit, 5f, ~0, QueryTriggerInteraction.Ignore))
+                best = hit.point;
+            else best.y = exitPos.y;
+            return best;
+        }
+
         void OnEscaped(LivingPhotographer p)
         {
             if (_finished) return;
@@ -311,9 +358,6 @@ namespace Jam.Gameplay
             {
                 if (meter) meter.Clear();
                 foreach (var c in PhotographerCamera.All.ToList()) if (c) c.Remove();
-                await UniTask.Delay(1500, cancellationToken: ct);
-                Hint("a2_finale", thoughtFinale);
-                await UniTask.Delay(2500, cancellationToken: ct);
                 // пластина, которую он уронил: картинка художников, иначе последняя проявленная из альбома
                 Texture plate = finalPlate;
                 if (!plate)
@@ -321,6 +365,14 @@ namespace Jam.Gameplay
                     var album = FindAnyObjectByType<FamilyAlbum>();
                     if (album) plate = album.LastDeveloped;
                 }
+                // лежит у стула возле входной двери и светится — финал наступает, когда игрок её поднимет
+                var spot = DroppedPlateSpot(out float yaw);
+                var dropped = DroppedPlate.Spawn(spot, yaw, plate);
+                bool taken = false;
+                dropped.Taken += () => taken = true;
+                await UniTask.Delay(1500, cancellationToken: ct);
+                Hint("a2_finale", thoughtFinale);
+                while (!taken) await UniTask.Yield(PlayerLoopTiming.Update, ct);
                 if (viewer && plate) await viewer.ShowTextureAsync(plate, sting: true, flip: true);
                 Lock(true);
                 Finished?.Invoke();

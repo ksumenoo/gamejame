@@ -19,7 +19,7 @@ namespace Jam.Gameplay
     /// </summary>
     public class Poltergeist : MonoBehaviour, IInteractable
     {
-        public enum Kind { Wardrobe, Chair, Dishes }
+        public enum Kind { Wardrobe, Chair, Dishes, Pumpkin }
 
         public Kind kind;
         [Tooltip("Сколько держать E (стоя на месте), с.")]
@@ -51,7 +51,7 @@ namespace Jam.Gameplay
             return m.Success ? m.Groups[1].Value : null;
         }
 
-        static float FearOf(Kind k) => k switch { Kind.Wardrobe => 0.18f, Kind.Dishes => 0.09f, _ => 0.06f };
+        static float FearOf(Kind k) => k switch { Kind.Wardrobe => 0.18f, Kind.Dishes => 0.09f, Kind.Pumpkin => 0.08f, _ => 0.06f };
 
         // ---------------- сборка ----------------
 
@@ -66,6 +66,20 @@ namespace Jam.Gameplay
                 if (!groups.TryGetValue(k, out var list)) groups[k] = list = new List<Transform>();
                 list.Add(r.transform);
             }
+            // тыквы (P_pumpkin…): каждая — своя вещь, разбивается на месте
+            var pumpkins = new Dictionary<Transform, List<Transform>>();
+            foreach (var r in FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None))
+            {
+                if (r.name.IndexOf("pumpkin", System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+                var root = r.transform;
+                while (root.parent && !root.name.StartsWith("P_pumpkin", System.StringComparison.OrdinalIgnoreCase)) root = root.parent;
+                if (!root.name.StartsWith("P_pumpkin", System.StringComparison.OrdinalIgnoreCase)) root = r.transform;
+                if (!pumpkins.TryGetValue(root, out var list)) pumpkins[root] = list = new List<Transform>();
+                list.Add(r.transform);
+            }
+            int n = 0;
+            foreach (var kv in pumpkins) groups["F_pumpkin" + (n++)] = kv.Value;
+
             foreach (var kv in groups)
             {
                 var b = new Bounds(kv.Value[0].position, Vector3.zero);
@@ -75,7 +89,7 @@ namespace Jam.Gameplay
                 go.transform.position = new Vector3(b.center.x, b.min.y, b.center.z);
                 var p = go.AddComponent<Poltergeist>();
                 string low = kv.Key.ToLowerInvariant();
-                p.kind = low.StartsWith("f_shkaf") ? Kind.Wardrobe : low.StartsWith("f_chair") ? Kind.Chair : Kind.Dishes;
+                p.kind = low.StartsWith("f_shkaf") ? Kind.Wardrobe : low.StartsWith("f_chair") ? Kind.Chair : low.StartsWith("f_pumpkin") ? Kind.Pumpkin : Kind.Dishes;
                 foreach (var t in kv.Value)
                 {
                     t.SetParent(go.transform, true);
@@ -128,7 +142,7 @@ namespace Jam.Gameplay
             get
             {
                 if (Done || !Candelabra.GhostMode) return "";
-                string what = kind switch { Kind.Wardrobe => "Опрокинуть шкаф", Kind.Chair => "Опрокинуть стул", _ => "Смахнуть посуду" };
+                string what = kind switch { Kind.Wardrobe => "Опрокинуть шкаф", Kind.Chair => "Опрокинуть стул", Kind.Pumpkin => "Разбить тыкву", _ => "Смахнуть посуду" };
                 return _hold > 0f ? $"{what}… {Mathf.RoundToInt(_hold / holdSeconds * 100f)}%" : what + " (держать E)";
             }
         }
@@ -158,6 +172,7 @@ namespace Jam.Gameplay
                 return;
             }
             _hold += Time.deltaTime;
+            HoldBar.Report(_hold / holdSeconds);
             if (_hold >= holdSeconds)
             {
                 _holder = null;
@@ -174,6 +189,7 @@ namespace Jam.Gameplay
             if (Done) return;
             Done = true;
             if (kind == Kind.Dishes) Smash();
+            else if (kind == Kind.Pumpkin) Burst();
             else TipOver(kind == Kind.Wardrobe ? 1.0f : 0.55f);
         }
 
@@ -324,6 +340,21 @@ namespace Jam.Gameplay
             }
             DOVirtual.DelayedCall(0.25f, Startle).SetLink(gameObject); // звон слышен сразу, как посыпалось
             DOVirtual.DelayedCall(lastLand, () => Play("dish_break", "flash_empty")).SetLink(gameObject);
+        }
+
+        /// <summary>Тыква лопается на месте: сплющивается, куски разлетаются по полу.</summary>
+        void Burst()
+        {
+            foreach (var (t, _, _, _) in _parts)
+            {
+                if (!t) continue;
+                foreach (var c in t.GetComponents<Collider>()) c.enabled = false;
+                var r = t.GetComponent<Renderer>();
+                Shatter(t, r);
+                Shatter(t, r); // кусков вдвое больше, чем у чашки
+            }
+            Startle();
+            Play("prop_fall", "dish_break");
         }
 
         static float FloorUnder(Vector3 p, float fromY)

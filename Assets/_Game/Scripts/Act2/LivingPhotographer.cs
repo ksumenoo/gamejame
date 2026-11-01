@@ -18,7 +18,13 @@ namespace Jam.Gameplay
     [RequireComponent(typeof(NavMeshAgent))]
     public class LivingPhotographer : MonoBehaviour
     {
-        public enum State { Waiting, Walking, Setting, Watching, Relighting, Fleeing, Gone }
+        public enum State { Waiting, Walking, Setting, Watching, Relighting, Fleeing, Gone, Petrified }
+
+        /// <summary>Сбежал, убегает или оцепенел от страха (шкала полна) — обычная жизнь кончилась.</summary>
+        bool Done => Current == State.Fleeing || Current == State.Gone || Current == State.Petrified;
+
+        /// <summary>Шкала испуга полна: замер и дрожит, ждёт последней пугалки (Act2Director).</summary>
+        public event Action<LivingPhotographer> Froze;
 
         [Header("Маршрут")]
         [Tooltip("Где он снимает (точки обзора сцен).")]
@@ -155,7 +161,7 @@ namespace Jam.Gameplay
         /// <summary>Шум в доме: идёт посмотреть и ставит туда камеру.</summary>
         public void HearNoise(Vector3 position, float fear, UnityEngine.Object source = null)
         {
-            if (Current == State.Fleeing || Current == State.Gone || !_agent.isOnNavMesh) return;
+            if (Done || !_agent.isOnNavMesh) return;
             float d = Flat(position - transform.position).magnitude;
             if (d < doorRadius) Scare(doorFear * Mathf.Lerp(1f, 0.35f, d / doorRadius) * Mathf.Max(0.5f, fear * 2f), source, position);
             TryFlash();
@@ -173,7 +179,7 @@ namespace Jam.Gameplay
         public void HearCandle(Candelabra c)
         {
             if (!c) return;
-            if (Current == State.Fleeing || Current == State.Gone || !_agent.isOnNavMesh) return;
+            if (Done || !_agent.isOnNavMesh) return;
             Scare(InSight(c.transform.position + Vector3.up) ? candleSeenFear : candleUnseenFear, c, c.transform.position);
             TryFlash();
             if (_relight && _relight != c && !_relight.IsLit) return; // уже идёт к другой — сначала ту
@@ -185,9 +191,20 @@ namespace Jam.Gameplay
         }
 
         /// <summary>Все свечи погасли — бежит прочь из дома.</summary>
+        /// <summary>Оцепенел: стоит на месте и дрожит. Убежит после последней пугалки (Flee).</summary>
+        public void Freeze()
+        {
+            if (Done) return;
+            Current = State.Petrified;
+            if (_agent.enabled && _agent.isOnNavMesh) { _agent.isStopped = true; _agent.ResetPath(); }
+            if (visual) visual.transform.DOShakePosition(600f, new Vector3(0.025f, 0.01f, 0.025f), 25, 90f, false, false).SetLink(gameObject);
+            Froze?.Invoke(this);
+        }
+
         public void Flee()
         {
             if (Current == State.Fleeing || Current == State.Gone) return;
+            if (visual) visual.transform.DOKill(true); // дрожь закончилась — фигура на своём месте
             Current = State.Fleeing;
             if (!_agent.isOnNavMesh) { Leave(); return; }
             _agent.isStopped = false;
@@ -212,6 +229,7 @@ namespace Jam.Gameplay
             if (!_agent.enabled || !_agent.isOnNavMesh) return;
             Animate();
             UpdateFear();
+            if (Current == State.Petrified) return; // стоит и дрожит
             if (Current == State.Fleeing || Current == State.Gone) { if (Current == State.Fleeing && Arrived()) Leave(); return; }
             if (UpdateFlash()) return; // замах — всё остальное ждёт
             switch (Current)
@@ -379,7 +397,7 @@ namespace Jam.Gameplay
         /// </summary>
         public void Startle(Vector3 position, float amount, UnityEngine.Object source = null)
         {
-            if (Current == State.Fleeing || Current == State.Gone || !_agent.isOnNavMesh) return;
+            if (Done || !_agent.isOnNavMesh) return;
             Scare(amount, source, position);
             if (Current == State.Fleeing) return;
             TryFlash();
@@ -393,7 +411,7 @@ namespace Jam.Gameplay
         /// <summary>Напугать. source — чтобы одна и та же дверь/свеча раз за разом пугала слабее.</summary>
         public void Scare(float amount, UnityEngine.Object source = null, Vector3? from = null)
         {
-            if (amount <= 0f || Current == State.Fleeing || Current == State.Gone) return;
+            if (amount <= 0f || Done) return;
             if (source)
             {
                 if (_lastScare.TryGetValue(source, out var t) && Time.time - t < repeatWindow) amount *= repeatFactor;
@@ -413,12 +431,12 @@ namespace Jam.Gameplay
                     if (look.sqrMagnitude > 1e-4f) transform.rotation = Quaternion.LookRotation(look.normalized, Vector3.up);
                 }
             }
-            if (Fear >= 1f) Flee();
+            if (Fear >= 1f) Freeze();
         }
 
         void UpdateFear()
         {
-            if (Current == State.Fleeing || Current == State.Gone || Current == State.Waiting) return;
+            if (Done || Current == State.Waiting) return;
             float dt = Time.deltaTime;
             float before = Fear;
             Fear = Mathf.Max(0f, Fear - fearDecayPerSec * dt);
@@ -439,7 +457,7 @@ namespace Jam.Gameplay
 
             Fear = Mathf.Clamp01(Fear);
             if (!Mathf.Approximately(before, Fear)) FearChanged?.Invoke(Fear);
-            if (Fear >= 1f) Flee();
+            if (Fear >= 1f) Freeze();
         }
 
         // ---------------- магний ----------------
@@ -470,7 +488,7 @@ namespace Jam.Gameplay
         /// <summary>Призрак на виду — поворачивается к нему и начинает замах.</summary>
         bool TryFlash()
         {
-            if (_flashT >= 0f || Time.time < _nextFlash || Current == State.Fleeing || Current == State.Gone) return false;
+            if (_flashT >= 0f || Time.time < _nextFlash || Done) return false;
             if (!CanSeeGhost()) return false;
             if (limitedFlash && FlashesLeft <= 0)
             {

@@ -1,4 +1,5 @@
 // Вывод low-res кадра на экран: point-выборка, 15-битный цвет PS1 и упорядоченный дизеринг 4×4.
+// _JamBrightness — яркость из настроек (глобально, ставит GameSettings; 0 = не задана = 1).
 Shader "Jam/LowResOutput"
 {
     Properties
@@ -40,6 +41,7 @@ Shader "Jam/LowResOutput"
             sampler2D _MainTex;
             float4 _MainTex_TexelSize;
             float _Levels, _Dither;
+            float _JamBrightness;
 
             v2f vert (appdata v)
             {
@@ -57,7 +59,7 @@ Shader "Jam/LowResOutput"
 
             fixed4 frag (v2f i) : SV_Target
             {
-                float3 c = tex2D(_MainTex, i.uv).rgb;
+                float3 c = tex2D(_MainTex, i.uv).rgb * (_JamBrightness > 0 ? _JamBrightness : 1.0);
                 // дизеринг по пикселям low-res кадра, а не экрана
                 int2 px = int2(floor(i.uv * _MainTex_TexelSize.zw)) % 4;
                 float t = (bayer[px.y * 4 + px.x] + 0.5) / 16.0 - 0.5;

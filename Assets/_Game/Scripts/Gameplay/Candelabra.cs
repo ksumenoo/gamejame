@@ -190,6 +190,7 @@ namespace Jam.Gameplay
             if (holding || (near && still))
             {
                 _hold += Time.deltaTime;
+                if (holding) HoldBar.Report(_hold / holdSeconds);
                 if (flame) flame.intensity = baseIntensity * Mathf.Lerp(1f, 0.25f, _hold / holdSeconds) * UnityEngine.Random.Range(0.6f, 1.1f);
                 if (_hold >= holdSeconds)
                 {

@@ -113,6 +113,24 @@ namespace Jam.Gameplay
             if (AllDeveloped) TwistReady?.Invoke();
         }
 
+        /// <summary>
+        /// Продолжение из сохранения: сцены сразу проявлены и дом изменён — без событий проявки
+        /// (без стингеров, мыслей и перелома: акт 2 восстанавливается отдельно).
+        /// </summary>
+        public void Restore(IEnumerable<int> indices)
+        {
+            foreach (var i in indices.Distinct().OrderBy(x => x))
+            {
+                var s = scenes.FirstOrDefault(x => x && x.index == i);
+                if (!s || s.Current == PastScene.State.Developed) continue;
+                s.SetState(PastScene.State.Developed);
+                ToggleVariants(i);
+                DevelopedCount++;
+            }
+            AggressionChanged?.Invoke(Aggression);
+            for (int k = 0; k < 3; k++) OpenGatedScenes(); // 5 открывается после 1–4, 6 — после 5
+        }
+
         void OpenGatedScenes()
         {
             bool earlierDone = scenes.Where(s => s.index < firstGatedScene).All(s => s.Current == PastScene.State.Developed);

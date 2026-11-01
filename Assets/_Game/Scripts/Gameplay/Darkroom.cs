@@ -152,6 +152,9 @@ namespace Jam.Gameplay
                 }
                 await UniTask.Delay(TimeSpan.FromSeconds(developSeconds), cancellationToken: ct);
 
+                // тёмные сцены (коридор, проявочная) иначе на пластине — только шум и белый призрак
+                foreach (var plate in plates) AutoLevels(plate.Image);
+
                 foreach (var plate in plates)
                 {
                     var scene = StoryDirector.Instance ? StoryDirector.Instance.TryDevelop(plate) : null;
@@ -184,6 +187,53 @@ namespace Jam.Gameplay
                 var toShow = developedPlate ?? plates.LastOrDefault();
                 if (toShow != null) await viewer.ShowAsync(toShow, sting: developedScene != null);
             }
+        }
+
+        /// <summary>
+        /// Автояркость пластины при проявке: самое тёмное — в чёрное, светлое — в белое (яркий призрак может уйти в белое),
+        /// средние тона чуть приподняты. Тёмная сцена становится читаемой, светлая почти не меняется.
+        /// </summary>
+        static void AutoLevels(RenderTexture rt)
+        {
+            if (!rt) return;
+            var prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            var t = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false);
+            t.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            RenderTexture.active = prev;
+            var px = t.GetPixels32();
+            var hist = new int[256];
+            foreach (var c in px) hist[(c.r * 77 + c.g * 150 + c.b * 29) >> 8]++;
+            int Pct(float q)
+            {
+                int need = (int)(px.Length * q), acc = 0;
+                for (int i = 0; i < 256; i++) { acc += hist[i]; if (acc >= need) return i; }
+                return 255;
+            }
+            int lo = Pct(0.01f), hi = Pct(0.96f);
+            if (hi - lo < 10) { Destroy(t); return; } // ровный кадр — не трогаем
+            float gain = Mathf.Min(5f, 235f / (hi - lo));
+            var lut = new byte[256];
+            for (int i = 0; i < 256; i++)
+            {
+                float v = Mathf.Clamp01(((i - lo) * gain + 8f) / 255f);
+                lut[i] = (byte)Mathf.RoundToInt(Mathf.Pow(v, 0.85f) * 255f); // средние тона чуть светлее
+            }
+            for (int i = 0; i < px.Length; i++) { var c = px[i]; px[i] = new Color32(lut[c.r], lut[c.g], lut[c.b], c.a); }
+            t.SetPixels32(px);
+            t.Apply();
+            Graphics.Blit(t, rt);
+            Destroy(t);
+        }
+
+        /// <summary>Продолжение из сохранения: снимок снова висит на верёвке.</summary>
+        public void HangRestored(Texture tex)
+        {
+            if (!tex) return;
+            var rt = new RenderTexture(tex.width, tex.height, 0, RenderTextureFormat.ARGB32) { filterMode = FilterMode.Point, name = "RestoredPlate" };
+            rt.Create();
+            Graphics.Blit(tex, rt);
+            Hang(new Plate { Image = rt });
         }
 
         void Hang(Plate plate)

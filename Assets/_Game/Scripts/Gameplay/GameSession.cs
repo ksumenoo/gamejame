@@ -18,9 +18,21 @@ namespace Jam.Gameplay
         /// <summary>Сцена меню есть в Build Settings — значит, кнопка «В меню» имеет смысл.</summary>
         public static bool HasMenu => Application.CanStreamedLevelBeLoaded(MenuScene);
 
+        /// <summary>«Новая игра»: старое сохранение стирается, игра с письма.</summary>
         public static void StartGame()
         {
+            SaveGame.Clear();
+            SaveGame.PendingRestore = false;
             ResetForNewGame();
+            Load(GameScene);
+        }
+
+        /// <summary>«Продолжить»: игра без письма, с последней проявки (SaveGame восстановит дом).</summary>
+        public static void ContinueGame()
+        {
+            if (!SaveGame.HasSave) { StartGame(); return; }
+            ResetForNewGame();
+            SaveGame.PendingRestore = true;
             Load(GameScene);
         }
 

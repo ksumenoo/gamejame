@@ -241,12 +241,38 @@ namespace Jam.UI
         {
             var col = Column(parent, "Settings", x, top, 820f);
             Label(col, "Настройки", 64, Paper, Bold, 110f);
-            Slider(col, "Громкость", 0f, 1f, Jam.Gameplay.GameSettings.Master, Jam.Gameplay.GameSettings.SetMaster);
+            Slider(col, "Общая громкость", 0f, 1f, Jam.Gameplay.GameSettings.Master, Jam.Gameplay.GameSettings.SetMaster);
+            Slider(col, "Музыка", 0f, 1f, Jam.Gameplay.GameSettings.Music, Jam.Gameplay.GameSettings.SetMusic);
             Slider(col, "Звуки", 0f, 1f, Jam.Gameplay.GameSettings.Sfx, Jam.Gameplay.GameSettings.SetSfx);
-            Slider(col, "Мышь", 0.25f, 3f, Jam.Gameplay.GameSettings.Mouse, Jam.Gameplay.GameSettings.SetMouse);
-            Spacer(col, 30f);
+            Slider(col, "Чувствительность мыши", 0.25f, 3f, Jam.Gameplay.GameSettings.Mouse, Jam.Gameplay.GameSettings.SetMouse);
+            Slider(col, "Яркость", 0.6f, 1.8f, Jam.Gameplay.GameSettings.Brightness, Jam.Gameplay.GameSettings.SetBrightness);
+            Spacer(col, 10f);
+            // переключатель-кнопка: текст сам показывает, что включено
+            Text smoothText = null;
+            string SmoothLabel() => "Сглаженная картинка: " + (Jam.Gameplay.GameSettings.Smooth ? "вкл" : "выкл");
+            var smooth = Button(col, SmoothLabel(), 34, () =>
+            {
+                Jam.Gameplay.GameSettings.SetSmooth(!Jam.Gameplay.GameSettings.Smooth);
+                if (smoothText) smoothText.text = SmoothLabel();
+            });
+            smoothText = smooth.GetComponentInChildren<Text>();
+            Spacer(col, 20f);
             Button(col, "Назад", 44, onBack);
             return col;
+        }
+
+        /// <summary>Абзац текста с переносом строк — для «Помощи» и «Об игре».</summary>
+        public static Text Paragraph(Transform parent, string text, int size, float width, Color? color = null)
+        {
+            var t = Label(parent, text, size, color ?? Paper);
+            t.alignment = TextAnchor.UpperLeft;
+            t.horizontalOverflow = HorizontalWrapMode.Wrap;
+            t.lineSpacing = 1.12f;
+            // высоту по переносам считает сам Text (ширину ему задаёт колонка), LayoutElement не мешает
+            var le = t.GetComponent<LayoutElement>();
+            le.preferredHeight = -1f;
+            le.preferredWidth = width;
+            return t;
         }
 
         public static void Show(Component panel, bool on)

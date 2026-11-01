@@ -55,6 +55,7 @@ namespace Jam.Gameplay
             bool still = !_ghostBody || _ghostBody.CurrentSpeed < 0.3f;
             if (!GhostMode || !_ghost.UseHeld || !still || !ReferenceEquals(_ghost.Current, this)) { _ghost = null; return; }
             _ghostHold += Time.deltaTime;
+            HoldBar.Report(_ghostHold / ghostHoldSeconds);
             if (_ghostHold < ghostHoldSeconds) return;
             var who = _ghost;
             _ghost = null;

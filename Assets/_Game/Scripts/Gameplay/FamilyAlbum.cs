@@ -135,6 +135,15 @@ namespace Jam.Gameplay
             LastDeveloped = rt;
         }
 
+        /// <summary>Продолжение из сохранения: снимок сцены сразу в рамке.</summary>
+        public void RestoreDeveloped(int sceneIndex, Texture tex)
+        {
+            var f = frames.FirstOrDefault(x => x && x.sceneIndex == sceneIndex);
+            if (!f || !tex) return;
+            f.SetDeveloped(tex);
+            LastDeveloped = tex;
+        }
+
         public void Show(Texture tex, bool developed, int sceneIndex = 0)
         {
             string caption = sceneIndex >= 1 && sceneIndex <= captions.Length ? captions[sceneIndex - 1] : null;

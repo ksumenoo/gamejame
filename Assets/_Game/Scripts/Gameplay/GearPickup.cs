@@ -36,6 +36,10 @@ namespace Jam.Gameplay
         Candelabra _scareCandle;
         CameraStation _zeroStation;
         Light _zeroGlow;
+        bool _zeroDeveloped, _cameraTaken;
+
+        /// <summary>Штатив в прихожей зовёт: до нулевого снимка — снять, после проявки — забрать камеру с собой.</summary>
+        bool TripodCalls => !Waiting && _zeroStation && (!_zeroShot || (_zeroDeveloped && !_cameraTaken));
         bool _zeroShot;
         float _nextBeacon;
 
@@ -146,6 +150,7 @@ namespace Jam.Gameplay
             if (_portable)
             {
                 _portable.PickupLocked = true;
+                _portable.PickedUp += p => _cameraTaken = true;
                 _zeroStation = _portable.GetComponent<CameraStation>();
                 if (_zeroStation)
                 {
@@ -229,6 +234,44 @@ namespace Jam.Gameplay
         void OnSceneDeveloped(PastScene s)
         {
             if (!s || s.index != 0) return;
+            OpenHouse();
+        }
+
+        /// <summary>
+        /// Продолжение из сохранения: обучение уже пройдено. Обскура в руках, дом проснулся сразу (без поочерёдных огней);
+        /// zeroDone — нулевая сцена снята и проявлена: камера своя, сцены и Маргарет видны в стекле.
+        /// </summary>
+        public void SkipTutorial(bool zeroDone)
+        {
+            if (Waiting)
+            {
+                Waiting = false;
+                SetGear(true);
+                if (_player) _player.ForceSneak = false;
+                foreach (var l in _darkLights) if (l) l.enabled = true;
+                foreach (var d in _darkDots) if (d) d.SetActive(true);
+                _darkLights.Clear();
+                _darkDots.Clear();
+                var col = GetComponent<Collider>();
+                if (col) col.enabled = false;
+                transform.localScale = Vector3.zero;
+            }
+            if (!zeroDone) return;
+            _zeroShot = _cameraTaken = true;
+            if (_zeroStation) _zeroStation.PlateDone -= OnZeroPlateDone;
+            if (_portable)
+            {
+                _portable.PickupLocked = false;
+                _portable.ReturnToPlayer();
+            }
+            if (_zeroGlow) _zeroGlow.enabled = false;
+            OpenHouse();
+        }
+
+        void OpenHouse()
+        {
+            if (_zeroDeveloped) return;
+            _zeroDeveloped = true;
             if (_story) _story.SceneDeveloped -= OnSceneDeveloped;
             // первая пластина проявлена — дом «открывается»: сцены 1–4 видны, Маргарет снова в стекле, и она просыпается
             foreach (var h in _held) if (h && h.Current == PastScene.State.Hidden) h.SetState(PastScene.State.Visible);
@@ -382,7 +425,7 @@ namespace Jam.Gameplay
         {
             _zeroShot = true;
             if (_portable) _portable.PickupLocked = false;
-            if (_zeroGlow) _zeroGlow.DOIntensity(0f, 1.2f).SetLink(_zeroGlow.gameObject).OnComplete(() => { if (_zeroGlow) Destroy(_zeroGlow.gameObject); });
+            // свет гаснет до проявки: теперь зовёт проявочная; после проявки штатив позовёт снова — забрать камеру
             if (_zeroStation) _zeroStation.PlateDone -= OnZeroPlateDone;
         }
 
@@ -399,7 +442,7 @@ namespace Jam.Gameplay
             {
                 Vector3? at = null;
                 if (Waiting) at = transform.position + Vector3.up * 0.2f;
-                else if (!_zeroShot && _zeroStation) at = _zeroStation.transform.position + Vector3.up * 1.3f;
+                else if (TripodCalls) at = _zeroStation.transform.position + Vector3.up * 1.3f;
                 if (at.HasValue)
                 {
                     _nextBeacon = Time.time + beaconPeriod;
@@ -407,10 +450,20 @@ namespace Jam.Gameplay
                         JamAudio.Play("shutter_close", at.Value);
                 }
             }
-            if (_zeroGlow && !_zeroShot && !Waiting)
+            if (_zeroGlow)
             {
-                if (!_zeroGlow.enabled) _zeroGlow.enabled = true;
-                _zeroGlow.intensity = 0.9f + 0.5f * Mathf.Sin(Time.time * 2.4f);
+                bool on = TripodCalls && !(_portable && _portable.IsCarried);
+                if (on)
+                {
+                    if (!_zeroGlow.enabled) _zeroGlow.enabled = true;
+                    _zeroGlow.intensity = 0.9f + 0.5f * Mathf.Sin(Time.time * 2.4f);
+                }
+                else if (_zeroGlow.enabled)
+                {
+                    _zeroGlow.intensity = Mathf.MoveTowards(_zeroGlow.intensity, 0f, Time.deltaTime * 1.5f);
+                    if (_zeroGlow.intensity <= 0.01f) _zeroGlow.enabled = false;
+                }
+                if (_cameraTaken && _zeroDeveloped) { Destroy(_zeroGlow.gameObject); _zeroGlow = null; }
             }
 
             // по пути к проявочной канделябр рядом с игроком вздрагивает и шепчет — дом не пуст.

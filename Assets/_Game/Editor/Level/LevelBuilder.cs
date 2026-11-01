@@ -94,6 +94,7 @@ namespace Jam.EditorTools
                     ? StaticEditorFlags.OccludeeStatic
                     : StaticEditorFlags.BatchingStatic | StaticEditorFlags.OccluderStatic | StaticEditorFlags.OccludeeStatic | StaticEditorFlags.ContributeGI);
             }
+            SplitLargeMeshes(house, 4f);
 
             var markers = house.GetComponentsInChildren<Transform>(true)
                 .GroupBy(t => t.name)
@@ -634,6 +635,84 @@ namespace Jam.EditorTools
             return 1.72f;                                                                // взрослый стоя
         }
 
+        /// <summary>
+        /// URP освещает каждый объект ограниченным числом ламп (4–8), выбирая ближайшие к центру объекта.
+        /// Стены всего дома — один меш, поэтому стены дальних комнат оставались без своего света и выглядели чёрными.
+        /// Режем большие меши на куски по сетке cell × cell м (по центру треугольника): у каждого куска свои лампы.
+        /// Исходный объект остаётся ради коллайдера, его рендерер выключается.
+        /// </summary>
+        static void SplitLargeMeshes(GameObject house, float cell)
+        {
+            int made = 0;
+            foreach (var mr in house.GetComponentsInChildren<MeshRenderer>().ToList())
+            {
+                var b = mr.bounds;
+                if (Mathf.Max(b.size.x, b.size.z) < cell * 1.75f || Poltergeist.GroupKey(mr.name) != null) continue;
+                var mf = mr.GetComponent<MeshFilter>();
+                if (!mf || !mf.sharedMesh) continue;
+                var src = mf.sharedMesh;
+                var tr = mr.transform;
+                var v = src.vertices; var nrm = src.normals; var uv = src.uv; var col = src.colors32;
+                bool hasN = nrm.Length == v.Length, hasUV = uv.Length == v.Length, hasC = col.Length == v.Length;
+                var parts = new Dictionary<Vector2Int, (Dictionary<int, int> map, List<int>[] tris)>();
+                for (int sub = 0; sub < src.subMeshCount; sub++)
+                {
+                    var t = src.GetTriangles(sub);
+                    for (int i = 0; i < t.Length; i += 3)
+                    {
+                        Vector3 c = tr.TransformPoint((v[t[i]] + v[t[i + 1]] + v[t[i + 2]]) / 3f);
+                        var key = new Vector2Int(Mathf.FloorToInt(c.x / cell), Mathf.FloorToInt(c.z / cell));
+                        if (!parts.TryGetValue(key, out var part))
+                        {
+                            part = (new Dictionary<int, int>(), new List<int>[src.subMeshCount]);
+                            for (int k = 0; k < src.subMeshCount; k++) part.tris[k] = new List<int>();
+                            parts[key] = part;
+                        }
+                        for (int j = 0; j < 3; j++)
+                        {
+                            int vi = t[i + j];
+                            if (!part.map.TryGetValue(vi, out int ni)) { ni = part.map.Count; part.map[vi] = ni; }
+                            part.tris[sub].Add(ni);
+                        }
+                    }
+                }
+                if (parts.Count < 2) continue;
+                foreach (var kv in parts)
+                {
+                    var (map, tris) = kv.Value;
+                    var nv = new Vector3[map.Count]; var nn = hasN ? new Vector3[map.Count] : null;
+                    var nu = hasUV ? new Vector2[map.Count] : null; var nc = hasC ? new Color32[map.Count] : null;
+                    foreach (var m in map)
+                    {
+                        nv[m.Value] = v[m.Key];
+                        if (hasN) nn[m.Value] = nrm[m.Key];
+                        if (hasUV) nu[m.Value] = uv[m.Key];
+                        if (hasC) nc[m.Value] = col[m.Key];
+                    }
+                    var mesh = new Mesh { name = $"{src.name}_{kv.Key.x}_{kv.Key.y}" };
+                    if (nv.Length > 65000) mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+                    mesh.vertices = nv;
+                    if (hasN) mesh.normals = nn;
+                    if (hasUV) mesh.uv = nu;
+                    if (hasC) mesh.colors32 = nc;
+                    mesh.subMeshCount = tris.Length;
+                    for (int k = 0; k < tris.Length; k++) mesh.SetTriangles(tris[k], k);
+                    mesh.RecalculateBounds();
+                    var go = new GameObject(mesh.name) { layer = mr.gameObject.layer };
+                    go.transform.SetParent(tr, false);
+                    go.AddComponent<MeshFilter>().sharedMesh = mesh;
+                    var r = go.AddComponent<MeshRenderer>();
+                    r.sharedMaterials = mr.sharedMaterials;
+                    r.shadowCastingMode = mr.shadowCastingMode;
+                    r.receiveShadows = mr.receiveShadows;
+                    GameObjectUtility.SetStaticEditorFlags(go, GameObjectUtility.GetStaticEditorFlags(mr.gameObject));
+                    made++;
+                }
+                mr.enabled = false;
+            }
+            if (made > 0) Debug.Log($"[Jam] Большие меши (стены, полы) нарезаны на {made} кусков — у каждого свои лампы.");
+        }
+
         /// <summary>Пока нет нужной позы — ставим другую картинку того же человека.</summary>
         static readonly Dictionary<string, string> FigureFallbacks = new()
         {
@@ -1001,7 +1080,9 @@ namespace Jam.EditorTools
                         if (s.x < 0f || s.y < 0f || s.z < 0f) r.gameObject.AddComponent<MeshCollider>();
                         else r.gameObject.AddComponent<BoxCollider>();
                     }
-                    GameObjectUtility.SetStaticEditorFlags(r.gameObject, StaticEditorFlags.BatchingStatic);
+                    // тыквы в акте 2 разбивает призрак — статик-батчинг не дал бы их сплющить
+                    if (name.IndexOf("pumpkin", System.StringComparison.OrdinalIgnoreCase) < 0)
+                        GameObjectUtility.SetStaticEditorFlags(r.gameObject, StaticEditorFlags.BatchingStatic);
                 }
                 placed++;
             }
@@ -1357,14 +1438,22 @@ namespace Jam.EditorTools
         /// Blender выгружает содержимое instance-коллекций (P_armchair и т.п.) как отдельные меши «…|Dupli|…» —
         /// без материалов и не всегда внутри пустышки. Их прячем: на месте P_ встанет настоящий проп из Props/.
         /// </summary>
-        /// <summary>Первый трек из Assets/Audio/Music (по имени) — для меню и титров.</summary>
-        internal static AudioClip FindMusic()
+        /// <summary>
+        /// Трек из Assets/Audio/Music по номеру в конце имени файла («Treck 1», «Track 2», «track 3»):
+        /// 1 — первый акт, 2 — меню и титры, 3 — второй акт. Без номера (по умолчанию) — трек 2, а нет его — первый по имени.
+        /// </summary>
+        internal static AudioClip FindMusic(int number = 2)
         {
             const string folder = "Assets/Audio/Music";
             if (!AssetDatabase.IsValidFolder(folder)) return null;
-            return AssetDatabase.FindAssets("t:AudioClip", new[] { folder })
-                .Select(AssetDatabase.GUIDToAssetPath).OrderBy(p => p)
-                .Select(AssetDatabase.LoadAssetAtPath<AudioClip>).FirstOrDefault(c => c);
+            var paths = AssetDatabase.FindAssets("t:AudioClip", new[] { folder })
+                .Select(AssetDatabase.GUIDToAssetPath).OrderBy(p => p, System.StringComparer.OrdinalIgnoreCase).ToList();
+            foreach (var p in paths)
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(System.IO.Path.GetFileNameWithoutExtension(p), @"(\d+)\s*$");
+                if (m.Success && int.Parse(m.Groups[1].Value) == number) return AssetDatabase.LoadAssetAtPath<AudioClip>(p);
+            }
+            return number == 2 ? paths.Select(AssetDatabase.LoadAssetAtPath<AudioClip>).FirstOrDefault(c => c) : null;
         }
 
         static void HideDupliCopies(GameObject house)
@@ -1769,7 +1858,14 @@ namespace Jam.EditorTools
             var credits = credGo.AddComponent<EndCredits>();
             credits.group = credGo.GetComponent<CanvasGroup>();
             credits.text = credText;
-            credits.music = FindMusic();
+            credits.music = FindMusic(2);
+
+            // музыка в игре: трек 1 — первый акт, трек 3 — второй
+            var gm = new GameObject("GameMusic").AddComponent<Jam.Audio.GameMusic>();
+            gm.transform.SetParent(canvas.root, false); // пересборка уровня удаляет и её — без дублей
+            gm.act1 = FindMusic(1);
+            gm.act2 = FindMusic(3);
+            Debug.Log($"[Jam] Музыка: акт 1 — {(gm.act1 ? gm.act1.name : "нет")}, акт 2 — {(gm.act2 ? gm.act2.name : "нет")}, титры — {(credits.music ? credits.music.name : "нет")}.");
             return credits;
         }
 

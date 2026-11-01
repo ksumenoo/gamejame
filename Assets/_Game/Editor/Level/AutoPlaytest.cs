@@ -8,6 +8,7 @@ using System.Text;
 using Jam.Gameplay;
 using Jam.Interaction;
 using Jam.Player;
+using UnityEngine.SceneManagement;
 using UnityEditor;
 using UnityEngine;
 
@@ -29,9 +30,17 @@ namespace Jam.EditorTools
         static readonly StringBuilder Log = new();
         static int _ok, _fail;
 
+        const string ModeKey = "Jam.AutoPlaytest.SaveMode";
+
         [MenuItem("Tools/Jam/Debug/Auto Playtest (checks 4-8)")]
-        static void Launch()
+        static void Launch() => Launch(false);
+
+        [MenuItem("Tools/Jam/Debug/Auto Playtest (save + continue)")]
+        static void LaunchSave() => Launch(true);
+
+        static void Launch(bool saveMode)
         {
+            SessionState.SetBool(ModeKey, saveMode);
             if (EditorApplication.isPlaying) { Begin(); return; }
             SessionState.SetBool(PendingKey, true);
             EditorApplication.isPlaying = true;
@@ -60,7 +69,7 @@ namespace Jam.EditorTools
             foreach (var f in Directory.GetFiles(OutDir)) File.Delete(f);
             Log.Clear();
             _ok = _fail = 0;
-            _run = Run();
+            _run = SessionState.GetBool(ModeKey, false) ? RunSave() : Run();
             _wait = null;
             EditorApplication.update -= Tick;
             EditorApplication.update += Tick;
@@ -174,6 +183,96 @@ namespace Jam.EditorTools
             var before = all.Where(t => t.name.StartsWith($"BEFORE_S{n}_")).ToList();
             var after = all.Where(t => t.name.StartsWith($"AFTER_S{n}_")).ToList();
             return before.All(t => !t.gameObject.activeSelf) && after.All(t => t.gameObject.activeSelf);
+        }
+
+        // ---------------- сохранение и «Продолжить» ----------------
+
+        /// <summary>Снять сцену со штатива и проявить. place = false — штатив уже стоит (нулевая сцена).</summary>
+        static IEnumerator ShootAndDevelop(PastScene s, bool place)
+        {
+            var fpc = Find<FirstPersonController>(); var inter = Find<Interactor>(); var room = Find<Darkroom>();
+            var portable = Find<PortableCamera>(); var station = portable.GetComponent<CameraStation>();
+            var margaret = Find<MargaretAI>();
+            void Calm() { if (margaret && margaret.isActiveAndEnabled) margaret.Calm(600f, fpc.transform.position); }
+            Vector3 fwd;
+            if (place)
+            {
+                fwd = s.viewPoint.forward; fwd.y = 0f; fwd.Normalize();
+                portable.PlaceAt(Floor(s.viewPoint.position), fwd);
+            }
+            else { fwd = station.transform.forward; fwd.y = 0f; fwd.Normalize(); }
+            Teleport(fpc, station.transform.position - fwd * 0.9f, fwd);
+            Calm();
+            yield return Sec(0.5f);
+            station.Interact(inter);
+            yield return Wait(() => station.Current == CameraStation.State.PlateReady, 45f, $"сцена {s.index}: снята");
+            station.Interact(inter);
+            portable.TryPickUp();
+            Teleport(fpc, room.standPoint.position, room.standPoint.forward);
+            Calm();
+            yield return Sec(0.3f);
+            room.Interact(inter);
+            yield return Wait(() => s.Current == PastScene.State.Developed, 10f, $"сцена {s.index}: проявлена");
+            yield return Sec(1.5f);
+            var viewer = Find<PlateViewer>();
+            if (viewer && viewer.IsOpen) viewer.ForceClose();
+        }
+
+        static IEnumerator RunSave()
+        {
+            SaveGame.Clear(); // прогон начинает с чистого листа (сохранение в редакторе — то же, что у тестов)
+            yield return Sec(1.5f);
+            Section("Сохранение");
+            var intro = Find<IntroLetter>();
+            if (intro) SetField(intro, "_skipped", true);
+            var fpc = Find<FirstPersonController>();
+            yield return Wait(() => !fpc.InputLocked, 25f, "письмо закрылось");
+            Check("до первой проявки сохранения нет", !SaveGame.HasSave);
+            var gear = Find<GearPickup>();
+            if (gear) gear.Interact(Find<Interactor>());
+            yield return Sec(1f);
+            var story = StoryDirector.Instance;
+            var zero = story.scenes.First(x => x && x.index == 0);
+            var e = ShootAndDevelop(zero, false); while (e.MoveNext()) yield return e.Current;
+            var s1 = story.scenes.First(x => x && x.index == 1);
+            e = ShootAndDevelop(s1, true); while (e.MoveNext()) yield return e.Current;
+            Check("после проявки игра сохранилась", SaveGame.HasSave);
+            int charges = Find<MagnesiumFlash>() ? Find<MagnesiumFlash>().Charges : -1;
+
+            Section("Выход в меню → «Продолжить»");
+            GameSession.ReturnToMenu();
+            yield return Wait(() => SceneManager.GetActiveScene().name == GameSession.MenuScene, 15f, "открылось меню");
+            yield return Sec(2.5f);
+            var contText = UnityEngine.Object.FindObjectsByType<UnityEngine.UI.Text>(FindObjectsSortMode.None).FirstOrDefault(t => t.text == "Продолжить");
+            var cont = contText ? contText.GetComponent<UnityEngine.UI.Button>() : null;
+            Check("в меню «Продолжить» активно", cont && cont.interactable);
+            Shot("09a_menu");
+            GameSession.ContinueGame();
+            yield return Wait(() => SceneManager.GetActiveScene().name == GameSession.GameScene && Find<FirstPersonController>(), 20f, "загрузилась игра");
+            yield return Sec(2.5f);
+
+            fpc = Find<FirstPersonController>();
+            story = StoryDirector.Instance;
+            var room = Find<Darkroom>();
+            var portable = Find<PortableCamera>();
+            var album = Find<FamilyAlbum>();
+            Check("письма нет, управление у игрока", fpc && !fpc.InputLocked);
+            Check("обскура в руках (не на верстаке)", !GearPickup.Waiting);
+            Check("бег открыт", fpc && !fpc.ForceSneak);
+            Check("проявлено 2 сцены (0 и 1)", story && story.DevelopedCount == 2, story ? story.DevelopedCount.ToString() : "нет");
+            Check("дом как после сцены 1", VariantsSwitched(1), Variants(1));
+            Check("сцены 2–4 открыты для обскуры", story.scenes.Where(x => x && x.index >= 2 && x.index <= 4).All(x => x.Current == PastScene.State.Visible));
+            Check("снимок в альбоме", album && album.LastDeveloped);
+            Check("камера своя: в руках и не заперта", portable && portable.IsCarried && !portable.PickupLocked);
+            if (room) Check("игрок у верстака", Vector3.Distance(fpc.transform.position, room.standPoint.position) < 1.5f);
+            var flash = Find<MagnesiumFlash>();
+            if (flash && charges >= 0) Check("магний как был", flash.Charges == charges, $"{charges} → {flash.Charges}");
+            Shot("09b_continued");
+
+            Section("Проявка после «Продолжить» сохраняется дальше");
+            var s2 = story.scenes.First(x => x && x.index == 2);
+            e = ShootAndDevelop(s2, true); while (e.MoveNext()) yield return e.Current;
+            Check("после новой проявки — 3 сцены", story.DevelopedCount == 3);
         }
 
         // ---------------- сам прогон ----------------
