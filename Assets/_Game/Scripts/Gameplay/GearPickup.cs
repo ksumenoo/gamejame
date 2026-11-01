@@ -165,7 +165,7 @@ namespace Jam.Gameplay
                     _zeroGlow.range = 3.2f;
                     _zeroGlow.intensity = 0f;
                     _zeroGlow.shadows = LightShadows.None;
-                    _zeroGlow.enabled = false; // включится, когда игрок возьмёт обскуру
+                    LightBudget.TurnOff(_zeroGlow); // включится, когда игрок возьмёт обскуру
                 }
             }
 
@@ -264,7 +264,7 @@ namespace Jam.Gameplay
                 _portable.PickupLocked = false;
                 _portable.ReturnToPlayer();
             }
-            if (_zeroGlow) _zeroGlow.enabled = false;
+            if (_zeroGlow) LightBudget.TurnOff(_zeroGlow);
             OpenHouse();
         }
 
@@ -461,7 +461,7 @@ namespace Jam.Gameplay
                 else if (_zeroGlow.enabled)
                 {
                     _zeroGlow.intensity = Mathf.MoveTowards(_zeroGlow.intensity, 0f, Time.deltaTime * 1.5f);
-                    if (_zeroGlow.intensity <= 0.01f) _zeroGlow.enabled = false;
+                    if (_zeroGlow.intensity <= 0.01f) LightBudget.TurnOff(_zeroGlow);
                 }
                 if (_cameraTaken && _zeroDeveloped) { Destroy(_zeroGlow.gameObject); _zeroGlow = null; }
             }

@@ -119,10 +119,46 @@ Shader "Jam/PS1Lit"
                 return uv / max(_TileSize, 0.01);
             }
 
+            // свой список ламп дома (ставит LightBudget каждый кадр): одинаковый для всех пикселей всех объектов,
+            // без выбора «4 лампы на объект» — поэтому соседние куски одной стены не расходятся по яркости
+            #define JAM_MAX_LIGHTS 48
+            float4 _JamLightPos[JAM_MAX_LIGHTS];   // xyz — где, w — 1/радиус²
+            float4 _JamLightCol[JAM_MAX_LIGHTS];   // rgb — цвет × яркость
+            float _JamLightCount;
+            float _JamMainScale;
+
+            half3 JamLights(float3 posWS, float3 n)
+            {
+                half3 sum = 0;
+                int count = (int)_JamLightCount;
+                [loop] for (int k = 0; k < count; k++)
+                {
+                    float3 v = _JamLightPos[k].xyz - posWS;
+                    float d2 = max(dot(v, v), 0.0001);
+                    // затухание как у URP: 1/d² с мягким обрезом у границы радиуса
+                    float f = saturate(1.0 - d2 * d2 * _JamLightPos[k].w * _JamLightPos[k].w);
+                    float att = f * f / d2;
+                    half w = saturate(abs(dot(n, v * rsqrt(d2))) * 0.5 + 0.5);
+                    sum += _JamLightCol[k].rgb * att * (w * w);
+                }
+                return sum;
+            }
+
+            half3 WrapLight(Light l, float3 n)
+            {
+                // лампы светят сквозь стены (теней нет), поэтому и стена, стоящая к лампе спиной, должна освещаться
+                // так же, как пол рядом с ней: считаем свет с любой стороны грани
+                half d = saturate(abs(dot(n, l.direction)) * 0.5h + 0.5h);
+                return l.color * (l.distanceAttenuation * l.shadowAttenuation) * (d * d);
+            }
+
             half4 frag (Varyings i) : SV_Target
             {
                 UNITY_SETUP_INSTANCE_ID(i);
                 float3 n = normalize(i.normalWS);
+                // стены в доме — одна плоскость на две комнаты: со стороны «изнанки» нормаль смотрела от ламп,
+                // и стена была чёрной. Освещаем ту сторону, которую видим
+                if (dot(n, GetWorldSpaceNormalizeViewDir(i.positionWS)) < 0) n = -n;
                 float2 uv = _UseMeshUV > 0.5 ? i.uv : WorldUV(i.uvPos, normalize(i.uvN));
                 uv = uv * _BaseMap_ST.xy + _BaseMap_ST.zw;
 
@@ -146,7 +182,26 @@ Shader "Jam/PS1Lit"
                 s.occlusion = 1;
                 s.normalTS = half3(0, 0, 1);
 
-                half4 c = UniversalFragmentBlinnPhong(inputData, s);
+                // мягкий («обёрнутый») свет вместо обычного: грань, стоящая к лампе боком или спиной, всё равно получает
+                // свет. Иначе у одной стены соседние грани выходили одна светлой, другая чёрной
+                // главный (лунный) свет — как раньше, обычный: «обёрнутый» он заливал весь дом ровным светом
+                Light mainLight = GetMainLight(inputData.shadowCoord);
+                half3 lit = inputData.bakedGI;
+                // в игре луна — ровный слабый общий свет без направления: направленная, она красила стены одной стороны
+                // светлыми, а противоположные — тёмными
+                if (_JamLightCount > 0.5) lit += mainLight.color * _JamMainScale;
+                else lit += mainLight.color * (mainLight.distanceAttenuation * mainLight.shadowAttenuation) * saturate(dot(n, mainLight.direction));
+                if (_JamLightCount > 0.5)
+                    lit += JamLights(inputData.positionWS, n);
+                else
+                {
+                    // вне игры (окно сцены в редакторе) — обычные лампы URP
+                    uint lightCount = GetAdditionalLightsCount();
+                    LIGHT_LOOP_BEGIN(lightCount)
+                        lit += WrapLight(GetAdditionalLight(lightIndex, inputData.positionWS, half4(1, 1, 1, 1)), n);
+                    LIGHT_LOOP_END
+                }
+                half4 c = half4(albedo * lit, 1);
                 if (_PS1Unlit > 0.5)
                 {
                     // ровный свет, чуть темнее на гранях, повёрнутых от объектива — чтобы читалась форма

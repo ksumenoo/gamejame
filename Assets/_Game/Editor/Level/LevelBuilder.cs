@@ -92,7 +92,7 @@ namespace Jam.EditorTools
                 bool movable = Poltergeist.GroupKey(r.name) != null;
                 GameObjectUtility.SetStaticEditorFlags(r.gameObject, movable
                     ? StaticEditorFlags.OccludeeStatic
-                    : StaticEditorFlags.BatchingStatic | StaticEditorFlags.OccluderStatic | StaticEditorFlags.OccludeeStatic | StaticEditorFlags.ContributeGI);
+                    : StaticEditorFlags.BatchingStatic | StaticEditorFlags.OccluderStatic | StaticEditorFlags.OccludeeStatic);  // без ContributeGI: никакого запечённого света — в билде запечённые данные красили стены в чёрное
             }
             SplitLargeMeshes(house, 4f);
 
@@ -296,6 +296,7 @@ namespace Jam.EditorTools
 
             BakeNavMesh(surface, scene);
             if (margaret) CheckPatrolReachability(margaret);
+            ForceRealtimeLighting(scene);
 
             EditorSceneManager.MarkSceneDirty(scene);
             Selection.activeGameObject = root;
@@ -675,6 +676,35 @@ namespace Jam.EditorTools
         /// Режем большие меши на куски по сетке cell × cell м (по центру треугольника): у каждого куска свои лампы.
         /// Исходный объект остаётся ради коллайдера, его рендерер выключается.
         /// </summary>
+        /// <summary>
+        /// Только живой свет. Лампы по умолчанию «Mixed»: в билде статичные стены брали свет из запечённых карт,
+        /// а карт нет или они устарели — стены и часть мебели выходили чёрными (в редакторе этого не видно).
+        /// </summary>
+        static void ForceRealtimeLighting(UnityEngine.SceneManagement.Scene scene)
+        {
+            int n = 0;
+            foreach (var root in scene.GetRootGameObjects())
+                foreach (var l in root.GetComponentsInChildren<Light>(true))
+                {
+                    if (l.lightmapBakeType == LightmapBakeType.Realtime) continue;
+                    l.lightmapBakeType = LightmapBakeType.Realtime;
+                    EditorUtility.SetDirty(l);
+                    n++;
+                }
+            foreach (var root in scene.GetRootGameObjects())
+                foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+                {
+                    // ещё и без статик-батчинга: дом импортирован зеркально (масштаб −1), а при склейке в билде
+                    // у таких мешей переворачиваются нормали — стены и потолок «смотрят» от ламп и выходят чёрными
+                    var f = GameObjectUtility.GetStaticEditorFlags(r.gameObject);
+                    var nf = f & ~StaticEditorFlags.ContributeGI & ~StaticEditorFlags.BatchingStatic;
+                    if (nf != f) GameObjectUtility.SetStaticEditorFlags(r.gameObject, nf);
+                }
+            Lightmapping.Clear();
+            Lightmapping.lightingDataAsset = null;
+            Debug.Log($"[Jam] Свет: только живой (переведено ламп: {n}), запечённые данные очищены.");
+        }
+
         static void SplitLargeMeshes(GameObject house, float cell)
         {
             int made = 0;
@@ -1271,6 +1301,9 @@ namespace Jam.EditorTools
             foreach (var r in house.GetComponentsInChildren<MeshRenderer>())
             {
                 if (!IsFloor(r)) continue;
+                // кусок нарезанного пола — лампа уже висит над целым полом комнаты (его рендерер выключен, но он есть)
+                var pr = r.transform.parent ? r.transform.parent.GetComponent<MeshRenderer>() : null;
+                if (pr && IsFloor(pr)) continue;
                 var b = r.bounds;
                 var l = new GameObject("Light_" + r.name).AddComponent<Light>();
                 l.transform.SetParent(lightsRoot, false);
@@ -1286,7 +1319,9 @@ namespace Jam.EditorTools
             return map;
         }
 
-        static bool IsFloor(Renderer r) => r.name.StartsWith("Plane") || r.name.StartsWith("Floor");
+        // потолки в Blender тоже Plane.0xx — отличаем по высоте: иначе над каждым потолком вешалась «лампа комнаты»,
+        // и потолок, освещённый сверху, снизу был чёрным
+        static bool IsFloor(Renderer r) => (r.name.StartsWith("Plane") || r.name.StartsWith("Floor")) && r.bounds.center.y < 1f;
 
         // ================= свет у игрока, канделябры, двери =================
 
@@ -1914,7 +1949,7 @@ namespace Jam.EditorTools
             var credits = credGo.AddComponent<EndCredits>();
             credits.group = credGo.GetComponent<CanvasGroup>();
             credits.text = credText;
-            credits.music = FindMusic(2);
+            credits.music = FindMusic(4) ?? FindMusic(2); // титры — трек 4 (нет его — трек меню)
 
             // музыка в игре: трек 1 — первый акт, трек 3 — второй
             var gm = new GameObject("GameMusic").AddComponent<Jam.Audio.GameMusic>();
