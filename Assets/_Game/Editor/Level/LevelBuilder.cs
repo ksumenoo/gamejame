@@ -530,7 +530,8 @@ namespace Jam.EditorTools
 
             // спрайты художников (Assets/Art/2D/Characters/C_*.png) — если есть, иначе серые заглушки
             var specs = SceneFigures.TryGetValue(index, out var list) ? list : null;
-            var found = specs?.Select(f => (f, tex: AssetDatabase.LoadAssetAtPath<Texture2D>($"{CharactersFolder}/{f.file}.png")))
+            var found = specs?.Select(f => (f, tex: AssetDatabase.LoadAssetAtPath<Texture2D>($"{CharactersFolder}/{f.file}.png")
+                    ?? (FigureFallbacks.TryGetValue(f.file, out var alt) ? AssetDatabase.LoadAssetAtPath<Texture2D>($"{CharactersFolder}/{alt}.png") : null)))
                 .Where(x => x.tex).ToList();
             if (index == 5)
             {
@@ -551,15 +552,29 @@ namespace Jam.EditorTools
             }
             if (found != null && found.Count > 0)
             {
+                // есть хоть одна картинка — каждый персонаж на своём месте: своя поза, запасная поза или серая заглушка.
+                // Иначе пропал бы, например, резкий мёртвый в центре — а на нём держится смысл сцены.
                 go.name = $"Scene_{index:00}";
-                float step = 0.75f, x0 = -(found.Count - 1) * step * 0.5f;
-                for (int i = 0; i < found.Count; i++)
+                float step = 0.75f, x0 = -(specs.Length - 1) * step * 0.5f;
+                for (int i = 0; i < specs.Length; i++)
                 {
-                    var (f, tex) = found[i];
-                    var (w, h) = FigureSize(tex, 0f);
-                    var mat = SaveBillboardMat("M_Past_" + f.file, Color.white);
-                    mat.SetTexture("_BaseMap", tex);
-                    AddFigure(go.transform, f.file, new Vector3(x0 + i * step, f.lift + h * 0.5f, 0f), new Vector3(w, h, 1f), mat, !f.dead);
+                    var f = specs[i];
+                    var tex = AssetDatabase.LoadAssetAtPath<Texture2D>($"{CharactersFolder}/{f.file}.png");
+                    if (!tex && FigureFallbacks.TryGetValue(f.file, out var alt))
+                        tex = AssetDatabase.LoadAssetAtPath<Texture2D>($"{CharactersFolder}/{alt}.png");
+                    var pos = new Vector3(x0 + i * step, 0f, 0f);
+                    if (tex)
+                    {
+                        var (w, h) = FigureSize(tex, PoseHeight(tex.name));
+                        var mat = SaveBillboardMat("M_Past_" + f.file, Color.white);
+                        mat.SetTexture("_BaseMap", tex);
+                        AddFigure(go.transform, f.file, pos + Vector3.up * (f.lift + h * 0.5f), new Vector3(w, h, 1f), mat, !f.dead);
+                    }
+                    else
+                    {
+                        float h = PoseHeight(f.file);
+                        AddFigure(go.transform, f.file, pos + Vector3.up * (f.lift + h * 0.5f), new Vector3(h * 0.38f, h, 1f), f.dead ? dead : alive, !f.dead);
+                    }
                 }
                 return scene;
             }
@@ -603,6 +618,28 @@ namespace Jam.EditorTools
             [3] = new[] { ("C_Guest_1", false, 0f), ("C_Clara_Chair", true, 0f), ("C_Guest_2", false, 0f) },
             [4] = new[] { ("C_Father_Burn", false, 0f), ("C_Clara_FaceFire", true, 0.35f) },
             [6] = new[] { ("C_Photographer_Fall", true, 0f) },
+        };
+
+        /// <summary>
+        /// Рост фигуры в игре — по позе в имени файла, а не по размеру картинки: художники сдают картинки любого размера.
+        /// Считается по картинке, которая реально стоит на месте (запасная «стоит» вместо «сидит» — ростом стоящего).
+        /// </summary>
+        static float PoseHeight(string file)
+        {
+            if (file.Contains("FaceFire")) return 0.6f;                                  // лицо в топке камина
+            bool sitting = file.Contains("Sit") || file.Contains("Chair") || file.Contains("Guest");
+            if (file.Contains("Clara")) return sitting ? 1.0f : 1.3f;                    // девочка 8–10 лет
+            if (sitting) return 1.25f;                                                   // взрослый сидя, с макушки до стоп
+            if (file.Contains("Fall")) return 1.6f;                                      // падает назад, наклонён
+            return 1.72f;                                                                // взрослый стоя
+        }
+
+        /// <summary>Пока нет нужной позы — ставим другую картинку того же человека.</summary>
+        static readonly Dictionary<string, string> FigureFallbacks = new()
+        {
+            ["C_Mother_Sit"] = "C_Mother_Stand",
+            ["C_Mother_Comb"] = "C_Mother_Stand",
+            ["C_Photographer_Fall"] = "C_Hero_Stand",
         };
 
         static void AddFigure(Transform parent, string name, Vector3 localPos, Vector3 size, Material mat, bool alive)
@@ -1437,6 +1474,10 @@ namespace Jam.EditorTools
                 ? AssetDatabase.FindAssets("t:AudioClip", new[] { AudioFolder }).Select(g => AssetDatabase.LoadAssetAtPath<AudioClip>(AssetDatabase.GUIDToAssetPath(g))).Where(c => c).ToList()
                 : new List<AudioClip>();
 
+            // ключи, которые игра больше не использует (например, шёпот Маргарет), из банка убираем — их клипы не попадут в билд
+            int removed = bank.entries.RemoveAll(x => x == null || !Jam.Audio.SoundBank.Keys.Contains(x.key));
+            if (removed > 0) Debug.Log($"[Jam] Звук: убрано неиспользуемых ключей: {removed}.");
+
             int found = 0;
             foreach (var key in Jam.Audio.SoundBank.Keys)
             {
@@ -1669,6 +1710,8 @@ namespace Jam.EditorTools
                 paper.texture = paperTex; // RawImage — без отдельного спрайта-ассета
                 paper.color = Color.white;
             }
+            // лист — в пропорциях картинки художника, ширина та же (иначе бумагу растянет)
+            Vector2 paperSize = paperTex ? new Vector2(620f, Mathf.Round(620f * paperTex.height / paperTex.width)) : new Vector2(620f, 760f);
 
             var body = UiChild<Text>("Body", paper.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(760f, 860f));
             body.font = font;
@@ -1694,6 +1737,7 @@ namespace Jam.EditorTools
                             ?? AssetDatabase.LoadAssetAtPath<TextAsset>("Assets/_Game/Text/letter_ru.txt");
             // заставка: голос, экипаж, фасад дома (всё необязательно — без файлов идёт по таймеру)
             letter.paper = paper.rectTransform;
+            letter.paperSize = paperSize;
             letter.audioSource = letterGo.AddComponent<AudioSource>();
             letter.audioSource.playOnAwake = false;
             letter.audioSource.spatialBlend = 0f;

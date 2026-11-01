@@ -56,13 +56,22 @@ MonoBehaviour:
     spatial: 0
     maxDistance: 15
   - key: flash_empty
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 5fa7232a443678f4299c50bdff11348c, type: 3}
+    - {fileID: 8300000, guid: e4144dd244dc1334c8dfb3a75bdd3b15, type: 3}
+    - {fileID: 8300000, guid: 2f09fc00ab78fe14ea84f6d312b7e681, type: 3}
+    - {fileID: 8300000, guid: 3f70c351583a9494c8cbd289867b785e, type: 3}
+    - {fileID: 8300000, guid: 3f047d344dfe9ca4eb4e122f900086b7, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 0
     maxDistance: 15
   - key: candle_out
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 8f8eba59d8c32c54e8aeedb2b94c20bd, type: 3}
+    - {fileID: 8300000, guid: 7cd69cbf10fe5ee4ea9b36a4fd10c02a, type: 3}
+    - {fileID: 8300000, guid: 53c584f2574f5b748bcc096013b8d468, type: 3}
+    - {fileID: 8300000, guid: 43592f3e7d670204a940df176abd8d3b, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 0
@@ -92,7 +101,13 @@ MonoBehaviour:
     spatial: 1
     maxDistance: 15
   - key: margaret_whisper
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: f898423c8443bfe47b1e9f2cf12a92ae, type: 3}
+    - {fileID: 8300000, guid: 1bf3f07fa8f9b9349abd6c703517f7f9, type: 3}
+    - {fileID: 8300000, guid: 0b07b5e916ea8b84fa6aad695d02c2d4, type: 3}
+    - {fileID: 8300000, guid: 92164f25fd7c4644188f46f12ee107dd, type: 3}
+    - {fileID: 8300000, guid: b4e89b3b243cf064e864bf75fbc88f1f, type: 3}
+    - {fileID: 8300000, guid: 0d94c6530c552f54ca9fa3b0b78a17c5, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 1
@@ -110,7 +125,8 @@ MonoBehaviour:
     spatial: 0
     maxDistance: 15
   - key: ambient
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 4fa21baa7c7e8804bba18f63a1146ae2, type: 3}
     volume: 0.5
     pitchJitter: 0.08
     spatial: 0
@@ -122,7 +138,11 @@ MonoBehaviour:
     spatial: 0
     maxDistance: 15
   - key: scene_align
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 82454dd9d41947d4e89cf808e4d1be03, type: 3}
+    - {fileID: 8300000, guid: 8fac45dd00e08bc4c803d882324b1065, type: 3}
+    - {fileID: 8300000, guid: b2105fc482ac9564f9804714dbb6dd82, type: 3}
+    - {fileID: 8300000, guid: 4eb06972af3acbc468e8651dfd923152, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 1

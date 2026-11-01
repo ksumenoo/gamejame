@@ -1,6 +1,8 @@
 // PS1-вид для дома, мебели и пропов (URP).
 // — Текстура тайлится по осям мира: ось выбирается жёстко по нормали, UV модели не нужны.
 //   Для героев с развёрткой (портрет) включить Use Mesh UV.
+//   Object UV — текстура привязана к модели, а не к миру: для всего, что движется (предметы в руках, двери),
+//   иначе при повороте текстура «ползёт» по предмету. Включает PS1ObjectUV при загрузке сцены.
 // — Цвета вершин (Vertex Paint в Blender) умножаются на текстуру.
 // — Вершины прилипают к сетке экрана (_PS1SnapRes — глобально, ставит LevelSettings) — «дрожание» PS1.
 // — Освещение URP (главный + точечные, Forward и Forward+), туман, point-фильтр берётся из импорта текстуры.
@@ -13,6 +15,7 @@ Shader "Jam/PS1Lit"
         _TileSize ("Tile size, m", Float) = 1
         [Toggle] _UseMeshUV ("Use mesh UV (heroes)", Float) = 0
         _VertexColorAmount ("Vertex color amount", Range(0, 1)) = 0
+        [Toggle] _ObjectUV ("Texture follows object (moving props)", Float) = 0
     }
     SubShader
     {
@@ -44,6 +47,7 @@ Shader "Jam/PS1Lit"
                 float _TileSize;
                 float _UseMeshUV;
                 half _VertexColorAmount;
+                float _ObjectUV;
             CBUFFER_END
 
             float4 _PS1SnapRes; // xy — сетка снапа в пикселях; 0 — без снапа
@@ -66,6 +70,8 @@ Shader "Jam/PS1Lit"
                 float2 uv : TEXCOORD2;
                 half4 color : TEXCOORD3;
                 half fog : TEXCOORD4;
+                float3 uvPos : TEXCOORD5; // откуда берётся тайлинг: мир или модель
+                float3 uvN : TEXCOORD6;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -87,6 +93,19 @@ Shader "Jam/PS1Lit"
                 o.positionCS = cs;
                 o.uv = input.uv;
                 o.color = input.color;
+                if (_ObjectUV > 0.5)
+                {
+                    // координаты модели в метрах (с учётом масштаба), чтобы плотность текстуры была как у мира
+                    float4x4 m = GetObjectToWorldMatrix();
+                    float3 sc = float3(length(m._m00_m10_m20), length(m._m01_m11_m21), length(m._m02_m12_m22));
+                    o.uvPos = input.positionOS.xyz * sc;
+                    o.uvN = input.normalOS;
+                }
+                else
+                {
+                    o.uvPos = o.positionWS;
+                    o.uvN = o.normalWS;
+                }
                 o.fog = ComputeFogFactor(cs.z);
                 return o;
             }
@@ -104,7 +123,7 @@ Shader "Jam/PS1Lit"
             {
                 UNITY_SETUP_INSTANCE_ID(i);
                 float3 n = normalize(i.normalWS);
-                float2 uv = _UseMeshUV > 0.5 ? i.uv : WorldUV(i.positionWS, n);
+                float2 uv = _UseMeshUV > 0.5 ? i.uv : WorldUV(i.uvPos, normalize(i.uvN));
                 uv = uv * _BaseMap_ST.xy + _BaseMap_ST.zw;
 
                 half3 albedo = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, uv).rgb * _BaseColor.rgb;
@@ -160,6 +179,7 @@ Shader "Jam/PS1Lit"
                 float _TileSize;
                 float _UseMeshUV;
                 half _VertexColorAmount;
+                float _ObjectUV;
             CBUFFER_END
 
             struct A { float4 positionOS : POSITION; UNITY_VERTEX_INPUT_INSTANCE_ID };
