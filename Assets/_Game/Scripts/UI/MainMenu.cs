@@ -135,6 +135,8 @@ namespace Jam.UI
                 var bg = MenuUI.Stretch(MenuUI.Rect("Art", root)).gameObject.AddComponent<RawImage>();
                 bg.texture = art;
                 bg.raycastTarget = false;
+                // по ширине экрана, прижат к верху: название на арте не обрезается, лишнее уходит вниз
+                bg.rectTransform.pivot = new Vector2(0.5f, 1f);
                 var fit = bg.gameObject.AddComponent<AspectRatioFitter>();
                 fit.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
                 fit.aspectRatio = art.width / (float)Mathf.Max(1, art.height);
@@ -149,7 +151,9 @@ namespace Jam.UI
 
             // ---- главное ----
             _main = MenuUI.Column(root, "Main", columnPos.x, columnPos.y + 60f);
-            MenuUI.Label(_main, "Выдержка", 112, MenuUI.Paper, MenuUI.Bold, 150f);
+            // название уже нарисовано на арте меню — тогда на его месте просто отступ
+            if (art) MenuUI.Spacer(_main, 150f);
+            else MenuUI.Label(_main, "Выдержка", 112, MenuUI.Paper, MenuUI.Bold, 150f);
             MenuUI.Spacer(_main, 40f);
             var newGame = MenuUI.Button(_main, "Новая игра", 46, NewGame);
             var cont = MenuUI.Button(_main, "Продолжить", 46, Continue);

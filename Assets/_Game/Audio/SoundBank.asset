@@ -14,43 +14,75 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Jam.Audio.SoundBank
   entries:
   - key: footstep
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 3976d394af8f2044ba0b1cedfcf47a2b, type: 3}
+    - {fileID: 8300000, guid: 39adb038bb70f3a4999783b8d2458487, type: 3}
+    - {fileID: 8300000, guid: b49312541fc08ce49b59ab0e2e9d8184, type: 3}
+    - {fileID: 8300000, guid: f1a5a4985f48a2349a8d78e66def09c9, type: 3}
+    - {fileID: 8300000, guid: f7befac6dcf0c2d4a846f57314873f15, type: 3}
+    - {fileID: 8300000, guid: 6f7ea093fe362e346a9ff5ce9c4e2880, type: 3}
+    - {fileID: 8300000, guid: 51adbaaa4079c1949ac72937e7b42083, type: 3}
+    - {fileID: 8300000, guid: fdcd3be0bc6876140873cf96c2c69e30, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 1
     maxDistance: 15
   - key: shutter_open
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 982e4a9cce10c9f45b6c2c5b1f17fde3, type: 3}
+    - {fileID: 8300000, guid: 3abc2cf81e63f2e48aa37babadcaf897, type: 3}
+    - {fileID: 8300000, guid: f609b836f745751449ce543974926772, type: 3}
+    - {fileID: 8300000, guid: 507e092479eab524c9f8d152562a065a, type: 3}
+    - {fileID: 8300000, guid: d4c4bb2fb0a357b47974f77da3a16767, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 1
     maxDistance: 15
   - key: shutter_close
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: fd75881b7c94c0447b608633808a5279, type: 3}
+    - {fileID: 8300000, guid: 1fc1f2a34d1d67942a80bf9f50cf060b, type: 3}
+    - {fileID: 8300000, guid: e6dbe28323fab9d4f9c3d5f8ac07feaa, type: 3}
+    - {fileID: 8300000, guid: b28a4bbd21bc1ef4485a6993c653a77e, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 1
     maxDistance: 15
   - key: exposure_tick
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: a8ad5709d7ccd364f8c433f3b41c8542, type: 3}
+    - {fileID: 8300000, guid: 468cacbf5816a284fbd2ab95c721ef12, type: 3}
+    - {fileID: 8300000, guid: 21ef9a948cd363840a41a624ad0803cd, type: 3}
+    - {fileID: 8300000, guid: 176d8d02c37bc66448594cbc5c3a474b, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 1
     maxDistance: 15
   - key: develop
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 69ac6d925fbf5e844821308712ca69cb, type: 3}
+    - {fileID: 8300000, guid: d86c3ce48b420c84188a979d39b85e30, type: 3}
+    - {fileID: 8300000, guid: 07e299f854cbd36418f56a006ab06cb5, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 1
     maxDistance: 15
   - key: sting
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 6617494147f27704cace969ccdcb4376, type: 3}
+    - {fileID: 8300000, guid: 3a44f8fa45a05cd458e796f88cfd8d1f, type: 3}
+    - {fileID: 8300000, guid: 5ce67ced3b395ed4eb7e99011236b2f7, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 0
     maxDistance: 15
   - key: flash
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 5df148c1ff747284b8160c138bc56636, type: 3}
+    - {fileID: 8300000, guid: 39b7243faf891e24ab5de02a1887526e, type: 3}
+    - {fileID: 8300000, guid: ef3f9c36373aa0b4ca61ef9ad5acabd5, type: 3}
+    - {fileID: 8300000, guid: 0277936f9eb3fa1448fdb53e975c26c6, type: 3}
+    - {fileID: 8300000, guid: ea676dd8f8d523a4a94443df272ffbb4, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 0
@@ -77,49 +109,60 @@ MonoBehaviour:
     spatial: 0
     maxDistance: 15
   - key: candle_light
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 56663ae3ed72d8848ab0ea6cdf0ae7af, type: 3}
+    - {fileID: 8300000, guid: 9ff3072fc4e33d741a5096362d83a1fb, type: 3}
+    - {fileID: 8300000, guid: 249a972ddd9a2ac4b988515c227ebe4b, type: 3}
+    - {fileID: 8300000, guid: a4d05aea06a87c04d97ca67162880879, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 0
     maxDistance: 15
   - key: door_open
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 1e6473e731f54174c9e8dfd4555d9574, type: 3}
+    - {fileID: 8300000, guid: 89e7f2385cf99ff4b8d39a931aaefa95, type: 3}
+    - {fileID: 8300000, guid: fd9045367d91c2f4f924313a338375ca, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 1
     maxDistance: 15
   - key: door_close
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 65ab784cd0731fd429a3a82ee9aa95e6, type: 3}
+    - {fileID: 8300000, guid: 6d2587ed4cf557c4c8e08b79c90b210a, type: 3}
+    - {fileID: 8300000, guid: a9c4ba3ea1803a34687a0cc88bb060f5, type: 3}
+    - {fileID: 8300000, guid: 40ac7c332ffa73f4ba753cc6841ebda9, type: 3}
+    - {fileID: 8300000, guid: cf38d5073d56ef7478d6d87695111462, type: 3}
+    - {fileID: 8300000, guid: 6f1a3926d1cff7e4d9873b31d130b796, type: 3}
+    - {fileID: 8300000, guid: 43768d12389732442bade8b0b1b88ad3, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 1
     maxDistance: 15
   - key: door_slam
-    clips: []
-    volume: 1
-    pitchJitter: 0.08
-    spatial: 1
-    maxDistance: 15
-  - key: margaret_whisper
     clips:
-    - {fileID: 8300000, guid: f898423c8443bfe47b1e9f2cf12a92ae, type: 3}
-    - {fileID: 8300000, guid: 1bf3f07fa8f9b9349abd6c703517f7f9, type: 3}
-    - {fileID: 8300000, guid: 0b07b5e916ea8b84fa6aad695d02c2d4, type: 3}
-    - {fileID: 8300000, guid: 92164f25fd7c4644188f46f12ee107dd, type: 3}
-    - {fileID: 8300000, guid: b4e89b3b243cf064e864bf75fbc88f1f, type: 3}
-    - {fileID: 8300000, guid: 0d94c6530c552f54ca9fa3b0b78a17c5, type: 3}
+    - {fileID: 8300000, guid: 29e49e92847c7f0438945956f7ae4fea, type: 3}
+    - {fileID: 8300000, guid: 43c9ff6d2a9a7a44f9acf66e69d2a4a6, type: 3}
+    - {fileID: 8300000, guid: 8cffb687331b39d48aafcf7e5ca35b53, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 1
     maxDistance: 15
   - key: margaret_chase
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 20edfc21ac730be458a8c22d94bf6b89, type: 3}
+    - {fileID: 8300000, guid: fdc895cfbdb1d0d419245684d2ac852e, type: 3}
+    - {fileID: 8300000, guid: 727f8b33460c2ee479cce89c940fede7, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 0
     maxDistance: 15
   - key: caught
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: d2d51af506ad10d4f981e841d20cdc7c, type: 3}
+    - {fileID: 8300000, guid: ecb98a17bea1b4b4a87acd5785967f04, type: 3}
+    - {fileID: 8300000, guid: 1b0f1d94f45bb8f4c94ad54384d62f86, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 0
@@ -132,7 +175,11 @@ MonoBehaviour:
     spatial: 0
     maxDistance: 15
   - key: obscura_raise
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 8c388e4a00e5cbb489ad375b9e37ed9d, type: 3}
+    - {fileID: 8300000, guid: eb02dd5ebc7432b498874b415a9da7e9, type: 3}
+    - {fileID: 8300000, guid: f4202840dd714ee459416aba994bc16d, type: 3}
+    - {fileID: 8300000, guid: e62ed9226bb5cea42985d803bd047939, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 0
@@ -148,31 +195,51 @@ MonoBehaviour:
     spatial: 1
     maxDistance: 15
   - key: prop_heavy
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: ab28c86492b1b8d4c9c60abcf64bc2e0, type: 3}
+    - {fileID: 8300000, guid: b3f742d685451454fa18d7454974b702, type: 3}
+    - {fileID: 8300000, guid: a9bb88c5d815e7a4c8105817289ccc1e, type: 3}
+    - {fileID: 8300000, guid: acaa56e35ff1fc548ac8770a3662cbb6, type: 3}
+    - {fileID: 8300000, guid: 181c0bbf2e36fe148871df739c9e6aff, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 1
     maxDistance: 15
   - key: prop_fall
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 276e01dd411ff9744a18293dbb407b6f, type: 3}
+    - {fileID: 8300000, guid: 3d9e012cad9e7074abfd6ed79bd5bcae, type: 3}
+    - {fileID: 8300000, guid: e8e43fe69409c694a9c2095942c56b46, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 1
     maxDistance: 15
   - key: dish_break
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 9da7f74f2fe4f5a408acb25ec310a3d5, type: 3}
+    - {fileID: 8300000, guid: 5cf01cfd205ffc343a66588c0f093518, type: 3}
+    - {fileID: 8300000, guid: 34b855789d644e54a9de366ecc0a641a, type: 3}
+    - {fileID: 8300000, guid: d555b363486119a45b78ac4a4305c3c2, type: 3}
+    - {fileID: 8300000, guid: a833e458310d601498c5d319d2dd938a, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 1
     maxDistance: 15
   - key: prop_creak
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 85d3b94b56fc60142ade7c4cb8034426, type: 3}
+    - {fileID: 8300000, guid: 0393c861bc9af494b897b6fd70fde3c2, type: 3}
+    - {fileID: 8300000, guid: 64ec90a499ceeba4fbd92c852a1eacfe, type: 3}
+    - {fileID: 8300000, guid: 7cfa7917155187742b464dd090cb410e, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 1
     maxDistance: 15
   - key: death_gasp
-    clips: []
+    clips:
+    - {fileID: 8300000, guid: 9502d44b6d09a404fb981cea608b6aaa, type: 3}
+    - {fileID: 8300000, guid: f24c88483584f9749ac896fd6440f50d, type: 3}
+    - {fileID: 8300000, guid: 55a9ea40fdff26743b93ac0c29b99729, type: 3}
     volume: 1
     pitchJitter: 0.08
     spatial: 0

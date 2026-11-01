@@ -186,12 +186,16 @@ namespace Jam.Gameplay
             if (audioSource && voiceOver && !_skipped) audioSource.PlayOneShot(voiceOver);
             if (hint) hint.text = "";
 
-            // буква за буквой; Пробел — дописать сразу
+            // буква за буквой; Пробел — дописать сразу.
+            // Есть разметка голоса (Resources/Text/intro_vo_segments.txt: «начало конец» каждой фразы, с) —
+            // буквы идут только пока звучит голос, на паузах голоса стоит и текст
+            float[] at = voiceOver ? VoiceTimes(full) : null;
+            float start = Time.time;
             int shown = 0;
             float next = Time.time;
             while (shown < full.Length && !_skipped)
             {
-                while (shown < full.Length && Time.time >= next)
+                while (shown < full.Length && (at != null ? Time.time - start >= at[shown] : Time.time >= next))
                 {
                     next += CharDelay(full[shown]) * scale;
                     shown++;
@@ -216,6 +220,49 @@ namespace Jam.Gameplay
                 var t = pg.DOFade(0f, 1.2f).SetLink(gameObject);
                 while (t.IsActive() && !t.IsComplete()) await UniTask.Yield(PlayerLoopTiming.Update, ct);
             }
+        }
+
+        /// <summary>Момент появления каждой буквы по разметке голоса; нет разметки — null (идём своим темпом).</summary>
+        static float[] VoiceTimes(string full)
+        {
+            var file = Resources.Load<TextAsset>("Text/intro_vo_segments");
+            if (!file) return null;
+            var segs = new List<Vector2>();
+            foreach (var line in file.text.Split('\n'))
+            {
+                var p = line.Trim().Replace(',', '.').Split(new[] { ' ', '\t' }, System.StringSplitOptions.RemoveEmptyEntries);
+                if (p.Length >= 2 && float.TryParse(p[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var a)
+                    && float.TryParse(p[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var b) && b > a)
+                    segs.Add(new Vector2(a, b));
+            }
+            if (segs.Count == 0) return null;
+            float voiced = 0f;
+            foreach (var sg in segs) voiced += sg.y - sg.x;
+            // вес буквы: буква/цифра — 1, пробел — 0.3, знаки — 0
+            var w = new float[full.Length];
+            float total = 0f;
+            for (int i = 0; i < full.Length; i++)
+            {
+                char c = full[i];
+                w[i] = char.IsLetterOrDigit(c) ? 1f : c == ' ' ? 0.3f : 0f;
+                total += w[i];
+            }
+            var at = new float[full.Length];
+            float acc = 0f;
+            for (int i = 0; i < full.Length; i++)
+            {
+                acc += w[i];
+                float v = acc / Mathf.Max(1f, total) * voiced; // сколько секунд голоса прошло к этой букве
+                float t = segs[segs.Count - 1].y;
+                foreach (var sg in segs)
+                {
+                    float d = sg.y - sg.x;
+                    if (v <= d) { t = sg.x + v; break; }
+                    v -= d;
+                }
+                at[i] = t;
+            }
+            return at;
         }
 
         /// <summary>Напечатанная часть + ещё не напечатанная прозрачной: строки не прыгают, пока текст растёт.</summary>
@@ -249,6 +296,11 @@ namespace Jam.Gameplay
                 mat = new Material(plateMaterial);
                 mat.SetFloat(FlipId, 0f);
                 mat.SetFloat(DevelopId, 0f);
+                // фасад — ночная картинка: без поднятой яркости и с контрастом пластины он уходил в чёрное зерно
+                mat.SetFloat("_Contrast", 1f);
+                mat.SetFloat("_Brightness", 2.2f);
+                mat.SetFloat("_Vignette", 0.4f);
+                mat.SetFloat("_Grain", 0.04f);
                 houseImage.material = mat;
             }
             houseImage.rectTransform.localScale = Vector3.one;

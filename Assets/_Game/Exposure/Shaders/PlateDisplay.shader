@@ -77,10 +77,12 @@ Shader "Jam/PlateDisplay"
 
                 float3 c = tex2D(_MainTex, uv).rgb;
                 // красный акцент (Маргарет) переживает тонирование: всё остальное уходит в сепию
-                float redness = saturate((c.r - max(c.g, c.b)) * 4.0 - 0.15);
+                // только настоящий красный (лампа проявочной, кровь), а не тёплое дерево и обои — иначе весь дом в красных пятнах
+                float redness = saturate((c.r - max(c.g, c.b)) * 3.0 - 0.75);
 
                 float lum = dot(c, float3(0.299, 0.587, 0.114));
-                lum = saturate((lum - 0.5) * _Contrast + 0.5);
+                lum = pow(lum, 0.7);                               // тени приподняты: тёмная комната остаётся читаемой
+                lum = saturate((lum - 0.42) * _Contrast + 0.5);
 
                 // проявка: светлое проступает раньше тёмного
                 float reveal = saturate(_Develop * 1.6 - (1.0 - lum) * 0.6);

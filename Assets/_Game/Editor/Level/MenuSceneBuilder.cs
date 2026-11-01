@@ -11,7 +11,8 @@ using UnityEngine.Rendering;
 namespace Jam.EditorTools
 {
     /// <summary>
-    /// Tools → Jam → Build Menu Scene. Собирает сцену MainMenu: фон-натюрморт, камеру, свет, звук, PS1-вид и меню,
+    /// Tools → Jam → Build Menu Scene. Собирает сцену MainMenu. Есть арт Resources/Menu/menu_bg.png — меню 2D:
+    /// картинка, кнопки, звук, без 3D-сцены. Нет арта — запасной вариант: фон-натюрморт, камера, свет, PS1-вид,
     /// и ставит MainMenu первой в Build Settings (перед Game).
     /// Фон: Menu.fbx от 3D-шника (метки MENU_CAM, MENU_CAM_LOOK, MENU_LIGHT_RED, MENU_CANDLE…),
     /// а пока его нет — угол проявочной из готовых пропов: камера на штативе смотрит на игрока.
@@ -23,6 +24,7 @@ namespace Jam.EditorTools
         const string GameScenePath = "Assets/Scenes/Game.unity";
         const string MenuModelPath = "Assets/Art/3D/Models/Menu.fbx";
         const string MenuRootName = "MENU_Generated";
+        const string MenuArtPath = "Assets/Resources/Menu/menu_bg.png";
 
         [MenuItem("Tools/Jam/Build Menu Scene")]
         public static void BuildMenuScene()
@@ -36,6 +38,25 @@ namespace Jam.EditorTools
             foreach (var g in scene.GetRootGameObjects())
                 if (g.name == MenuRootName || g.GetComponentInChildren<Camera>(true) || g.GetComponentInChildren<Light>(true) || g.GetComponent<MainMenu>())
                     Object.DestroyImmediate(g);
+
+            // ---------- 2D-меню: есть арт menu_bg — никакой 3D-сцены, только камера (чёрный фон), звук и меню ----------
+            if (File.Exists(MenuArtPath))
+            {
+                var root2d = new GameObject(MenuRootName);
+                var cam2d = new GameObject("MenuCamera") { tag = "MainCamera" }.AddComponent<Camera>();
+                cam2d.transform.SetParent(root2d.transform, false);
+                cam2d.clearFlags = CameraClearFlags.SolidColor;
+                cam2d.backgroundColor = Color.black;
+                cam2d.cullingMask = 0; // рисовать нечего: фон — картинка в интерфейсе
+                cam2d.gameObject.AddComponent<AudioListener>();
+                AddMenuAudio(root2d.transform);
+                root2d.AddComponent<MainMenu>();
+                EditorSceneManager.MarkSceneDirty(scene);
+                EditorSceneManager.SaveScene(scene, MenuScenePath);
+                EnsureMenuInBuild();
+                Debug.Log("[Jam] Меню собрано (2D: фон menu_bg). Build Settings: MainMenu → Game.");
+                return;
+            }
 
             EnsureFolder(MatFolder);
             var matProp = SaveMat("M_Level_Prop", new Color(0.45f, 0.35f, 0.25f));
@@ -114,29 +135,31 @@ namespace Jam.EditorTools
             settings.mainCamera = cam;
             settings.outputMaterial = SaveShaderMat("M_LowResOutput", "Jam/LowResOutput");
 
-            var audio = new GameObject("JamAudio").AddComponent<Jam.Audio.JamAudio>();
-            audio.transform.SetParent(root.transform, false);
-            audio.bank = LoadOrCreateSoundBank();
-
-            // музыка меню — первый трек из Assets/Audio/Music
-            var music = FindMusic();
-            if (music)
-            {
-                var ms = new GameObject("MenuMusic").AddComponent<AudioSource>();
-                ms.transform.SetParent(root.transform, false);
-                ms.clip = music;
-                ms.loop = true;
-                ms.playOnAwake = true;
-                ms.spatialBlend = 0f;
-                ms.volume = 0.6f;
-            }
-
+            AddMenuAudio(root.transform);
             root.AddComponent<MainMenu>();
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, MenuScenePath);
             EnsureMenuInBuild();
             Debug.Log("[Jam] Сцена меню собрана и сохранена. Build Settings: MainMenu → Game.");
+        }
+
+        /// <summary>Звуки интерфейса и музыка меню (трек 2 из Assets/Audio/Music).</summary>
+        static void AddMenuAudio(Transform root)
+        {
+            var audio = new GameObject("JamAudio").AddComponent<Jam.Audio.JamAudio>();
+            audio.transform.SetParent(root, false);
+            audio.bank = LoadOrCreateSoundBank();
+
+            var music = FindMusic(2);
+            if (!music) return;
+            var ms = new GameObject("MenuMusic").AddComponent<AudioSource>();
+            ms.transform.SetParent(root, false);
+            ms.clip = music;
+            ms.loop = true;
+            ms.playOnAwake = true;
+            ms.spatialBlend = 0f;
+            ms.volume = 0.6f;
         }
 
         /// <summary>MainMenu — первая сцена билда, Game — вторая. Остальное (Boot) — как было, после них.</summary>

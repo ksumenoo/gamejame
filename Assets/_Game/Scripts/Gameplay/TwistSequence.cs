@@ -102,7 +102,7 @@ namespace Jam.Gameplay
                 if (viewer && finalPlate)
                 {
                     if (whiteFlash) whiteFlash.DOFade(0f, 0.4f).SetLink(gameObject);
-                    await viewer.ShowTextureAsync(finalPlate, sting: true, flip: true);
+                    await viewer.ShowTextureAsync(finalPlate, sting: true, flip: false); // рисунок художника — прямо
                 }
                 else if (whiteFlash)
                 {

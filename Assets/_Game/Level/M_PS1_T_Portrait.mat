@@ -30,6 +30,7 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+    - _ObjectUV: 0
     - _TileSize: 2
     - _UseMeshUV: 1
     - _VertexColorAmount: 0

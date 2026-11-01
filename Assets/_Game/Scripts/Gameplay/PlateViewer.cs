@@ -78,7 +78,8 @@ namespace Jam.Gameplay
         public async UniTask ShowAsync(Plate plate, bool sting)
         {
             if (plate == null || !plate.Image) return;
-            await ShowTextureAsync(plate.Image, sting, true, plate.Blank ? 1.9f : -1f);
+            // проявленный снимок показываем прямо, как отпечаток: вверх ногами комнату было не узнать
+            await ShowTextureAsync(plate.Image, sting, false, plate.Blank ? 1.9f : -1f);
             Closed?.Invoke(plate);
         }
 
@@ -89,6 +90,7 @@ namespace Jam.Gameplay
         static readonly int RedKeepId = Shader.PropertyToID("_RedKeep");
         static readonly int ContrastId = Shader.PropertyToID("_Contrast");
         static readonly int OverlayId = Shader.PropertyToID("_OverlayStrength");
+        static readonly int VignetteId = Shader.PropertyToID("_Vignette");
         float[] _baseLook;
 
         /// <summary>Показать любую картинку как пластину (финальная пластина от художников). flip — перевернуть как обскура.</summary>
@@ -119,10 +121,14 @@ namespace Jam.Gameplay
                     if (_baseBrightness < 0f) _baseBrightness = _mat.GetFloat(BrightnessId);
                     _mat.SetFloat(BrightnessId, brightness >= 0f ? brightness : _baseBrightness);
                     _baseLook ??= new[] { _mat.GetFloat(GrainId), _mat.GetFloat(RedKeepId), _mat.GetFloat(ContrastId), _mat.GetFloat(OverlayId) };
-                    _mat.SetFloat(GrainId, clean ? 0.02f : _baseLook[0]);
-                    _mat.SetFloat(RedKeepId, clean ? 0f : _baseLook[1]);
-                    _mat.SetFloat(ContrastId, clean ? 1.15f : _baseLook[2]);
-                    _mat.SetFloat(OverlayId, clean ? 0.25f : _baseLook[3]);
+                    // пластина должна читаться: зерна и царапин поменьше, контраст мягче, красный — только акцентом
+                    // пластина должна читаться: почти без зерна и царапин, мягкий контраст, светлее, красный — только акцентом
+                    _mat.SetFloat(GrainId, clean ? 0.02f : 0.03f);
+                    _mat.SetFloat(RedKeepId, clean ? 0f : 0.35f);
+                    _mat.SetFloat(ContrastId, clean ? 1.15f : 1.0f);
+                    _mat.SetFloat(OverlayId, clean ? 0.25f : 0.15f);
+                    if (_mat.HasProperty(VignetteId)) _mat.SetFloat(VignetteId, 0.3f);
+                    if (!clean && brightness < 0f) _mat.SetFloat(BrightnessId, 1.45f);
                 }
 
                 await WaitTween(group.DOFade(1f, 0.25f).SetLink(gameObject), ct);

@@ -372,10 +372,13 @@ namespace Jam.Gameplay
             if ((cam.transform.position - transform.position).sqrMagnitude > exposureAttractRadius * exposureAttractRadius) return;
             Vector3 fwd = cam.transform.forward;
             fwd.y = 0f;
-            Vector3 point = cam.transform.position + (fwd.sqrMagnitude > 1e-4f ? fwd.normalized * lureDistance : Vector3.zero);
-            // если перед объективом стена — встанет у неё
+            fwd = fwd.sqrMagnitude > 1e-4f ? fwd.normalized : Vector3.forward;
+            // встаёт сбоку кадра, а не по центру: в кадре она есть, но сцену прошлого не заслоняет
+            Vector3 side = Vector3.Cross(Vector3.up, fwd) * (Random.value < 0.5f ? -1f : 1f);
+            Vector3 point = cam.transform.position + fwd * (lureDistance + 0.6f) + side * 1.0f;
+            // если на пути стена — встанет у неё
             if (Physics.Linecast(cam.transform.position, point, out var hit, occluders, QueryTriggerInteraction.Ignore))
-                point = hit.point - fwd.normalized * 0.3f;
+                point = hit.point - (point - cam.transform.position).normalized * 0.3f;
             Investigate(point);
             _posingFor = cam;
         }

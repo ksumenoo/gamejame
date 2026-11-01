@@ -210,9 +210,11 @@ namespace Jam.Gameplay
                 for (int i = 0; i < 256; i++) { acc += hist[i]; if (acc >= need) return i; }
                 return 255;
             }
-            int lo = Pct(0.01f), hi = Pct(0.96f);
+            int lo = Pct(0.01f), hi = Pct(0.96f), mid = Pct(0.5f);
             if (hi - lo < 10) { Destroy(t); return; } // ровный кадр — не трогаем
-            float gain = Mathf.Min(5f, 235f / (hi - lo));
+            // тёмный кадр с парой ярких пятен (красный свет, свеча): растяжка по светлым почти ничего не даёт —
+            // тогда тянем по середине тонов, яркие пятна пусть уходят в белое
+            float gain = Mathf.Min(5f, Mathf.Max(235f / (hi - lo), 105f / Mathf.Max(1, mid - lo)));
             var lut = new byte[256];
             for (int i = 0; i < 256; i++)
             {

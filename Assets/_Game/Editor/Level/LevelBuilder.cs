@@ -109,6 +109,7 @@ namespace Jam.EditorTools
             viewRoot.SetParent(root.transform, false);
             var camNames = markers.Keys.Where(n => Regex.IsMatch(n, @"^CAM_\d+$")).OrderBy(n => n).ToList();
             var pastScenes = new List<PastScene>();
+            s_markers = markers;
             foreach (var camName in camNames)
             {
                 var m = markers[camName];
@@ -503,6 +504,18 @@ namespace Jam.EditorTools
             station.body = body;
             station.shutter = shutter;
             station.exposureSeconds = 6f;
+            // тиканье часового механизма, пока идёт выдержка (петля, Assets/Audio/Voice/exposure_tick_loop.wav)
+            var tick = LoadAudio("exposure_tick_loop");
+            if (tick)
+            {
+                var src = root.AddComponent<AudioSource>();
+                src.playOnAwake = false;
+                src.spatialBlend = 0.6f;
+                src.volume = 0.7f;
+                src.maxDistance = 12f;
+                station.audioSource = src;
+                station.tickLoop = tick;
+            }
             station.shutterOpenTarget = shutterOpen; // открытое положение задано в Blender копией Shutter_Open
             if (shutter && !shutterOpen)
                 station.shutterOpenOffset = shutter.parent ? shutter.parent.InverseTransformVector(slideWorld) : slideWorld;
@@ -564,12 +577,27 @@ namespace Jam.EditorTools
                     if (!tex && FigureFallbacks.TryGetValue(f.file, out var alt))
                         tex = AssetDatabase.LoadAssetAtPath<Texture2D>($"{CharactersFolder}/{alt}.png");
                     var pos = new Vector3(x0 + i * step, 0f, 0f);
+                    float lift = tex && HalfBody(tex.name) ? SeatHeight : f.lift;
+                    bool flip = false;
+                    // метка FIG_<файл> в Blender (пустышка) — фигура ровно там: низ картинки = метка (на кровати, на стуле, в камине).
+                    // В имени метки есть «flip» — фигура отражена зеркально (рука в другую сторону).
+                    var fm = FigureMarker(f.file);
+                    if (fm)
+                    {
+                        pos = go.transform.InverseTransformPoint(fm.position);
+                        lift = tex && HalfBody(tex.name) ? SeatHeight : 0f; // метка на полу у стула, по пояс — поднимаем на сиденье
+                        flip = fm.name.IndexOf("flip", System.StringComparison.OrdinalIgnoreCase) >= 0;
+                    }
                     if (tex)
                     {
                         var (w, h) = FigureSize(tex, PoseHeight(tex.name));
                         var mat = SaveBillboardMat("M_Past_" + f.file, Color.white);
                         mat.SetTexture("_BaseMap", tex);
-                        AddFigure(go.transform, f.file, pos + Vector3.up * (f.lift + h * 0.5f), new Vector3(w, h, 1f), mat, !f.dead);
+                        // зеркало — через развёртку материала (размер квада остаётся положительным)
+                        mat.SetTextureScale("_BaseMap", new Vector2(flip ? -1f : 1f, 1f));
+                        mat.SetTextureOffset("_BaseMap", new Vector2(flip ? 1f : 0f, 0f));
+                        EditorUtility.SetDirty(mat);
+                        AddFigure(go.transform, f.file, pos + Vector3.up * (lift + h * 0.5f), new Vector3(w, h, 1f), mat, !f.dead);
                     }
                     else
                     {
@@ -625,9 +653,15 @@ namespace Jam.EditorTools
         /// Рост фигуры в игре — по позе в имени файла, а не по размеру картинки: художники сдают картинки любого размера.
         /// Считается по картинке, которая реально стоит на месте (запасная «стоит» вместо «сидит» — ростом стоящего).
         /// </summary>
+        /// <summary>Нарисованы по пояс (сидят за столом): низ картинки — на высоте сиденья, а не на полу.</summary>
+        static bool HalfBody(string file) =>
+            file.Contains("Father_Sit") || file.Contains("Mother_Sit") || file.Contains("Guest");
+        const float SeatHeight = 0.45f;
+
         static float PoseHeight(string file)
         {
             if (file.Contains("FaceFire")) return 0.6f;                                  // лицо в топке камина
+            if (HalfBody(file)) return 0.85f;                                            // сидит за столом, нарисован по пояс: от бёдер до макушки
             bool sitting = file.Contains("Sit") || file.Contains("Chair") || file.Contains("Guest");
             if (file.Contains("Clara")) return sitting ? 1.0f : 1.3f;                    // девочка 8–10 лет
             if (sitting) return 1.25f;                                                   // взрослый сидя, с макушки до стоп
@@ -720,6 +754,28 @@ namespace Jam.EditorTools
             ["C_Mother_Comb"] = "C_Mother_Stand",
             ["C_Photographer_Fall"] = "C_Hero_Stand",
         };
+
+        static Dictionary<string, Transform> s_markers;
+
+        /// <summary>Метка места фигуры: FIG_C_Clara_SitBed, FIG_Clara_SitBed (можно с хвостом: _flip, .001).</summary>
+        static Transform FigureMarker(string file)
+        {
+            if (s_markers == null) return null;
+            string bare = file.StartsWith("C_") ? file.Substring(2) : file;
+            foreach (var kv in s_markers)
+            {
+                string n = kv.Key;
+                if (!n.StartsWith("FIG_", System.StringComparison.OrdinalIgnoreCase)) continue;
+                string rest = n.Substring(4);
+                foreach (var key in new[] { file, bare })
+                {
+                    if (!rest.StartsWith(key, System.StringComparison.OrdinalIgnoreCase)) continue;
+                    // FIG_Clara_Sit не должна забрать метку FIG_Clara_SitBed: после имени — конец, «_» или «.»
+                    if (rest.Length == key.Length || rest[key.Length] == '_' || rest[key.Length] == '.') return kv.Value;
+                }
+            }
+            return null;
+        }
 
         static void AddFigure(Transform parent, string name, Vector3 localPos, Vector3 size, Material mat, bool alive)
         {

@@ -373,7 +373,7 @@ namespace Jam.Gameplay
                 await UniTask.Delay(1500, cancellationToken: ct);
                 Hint("a2_finale", thoughtFinale);
                 while (!taken) await UniTask.Yield(PlayerLoopTiming.Update, ct);
-                if (viewer && plate) await viewer.ShowTextureAsync(plate, sting: true, flip: true);
+                if (viewer && plate) await viewer.ShowTextureAsync(plate, sting: true, flip: false);
                 Lock(true);
                 Finished?.Invoke();
                 if (credits) await credits.ShowAsync();

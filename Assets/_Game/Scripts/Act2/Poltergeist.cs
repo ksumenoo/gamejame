@@ -213,6 +213,8 @@ namespace Jam.Gameplay
         /// </summary>
         (Vector3 dir, float angle) FallPlan(Bounds b)
         {
+            // шкаф падает всегда до пола: мелкая мебель на пути (кровать, стул, ковёр) его не держит, только стены и двери
+            bool heavy = kind == Kind.Wardrobe;
             float H = Mathf.Max(0.3f, b.size.y);
             Vector3 bestDir = Vector3.forward;
             float bestAngle = -1f;
@@ -229,10 +231,11 @@ namespace Jam.Gameplay
                 {
                     Vector3 o = edge + Vector3.up * y + side * (k * width * 0.8f) - d * 0.03f;
                     // старт уже внутри чего-то (стул задвинут под столешницу) — падать сюда нельзя
-                    if (Blocked(Physics.OverlapSphere(o, 0.03f, ~0, QueryTriggerInteraction.Ignore))) { allowed = Mathf.Min(allowed, 0f); continue; }
+                    if (!heavy && Blocked(Physics.OverlapSphere(o, 0.03f, ~0, QueryTriggerInteraction.Ignore))) { allowed = Mathf.Min(allowed, 0f); continue; }
                     foreach (var h in Physics.RaycastAll(o, d, H, ~0, QueryTriggerInteraction.Ignore))
                     {
                         if (IsMine(h.collider) || h.normal.y > 0.7f) continue;
+                        if (heavy && h.collider.bounds.size.y < 1.6f) continue; // через низкую мебель шкаф просто валится
                         if (Mathf.Sqrt(h.distance * h.distance + y * y) > H) continue; // так далеко вещь не достаёт
                         allowed = Mathf.Min(allowed, Mathf.Atan2(h.distance, y) * Mathf.Rad2Deg);
                     }
@@ -241,6 +244,7 @@ namespace Jam.Gameplay
                 float score = allowed + Random.Range(0f, 2f);
                 if (score > bestAngle) { bestAngle = score; bestDir = d; }
             }
+            if (heavy) return (bestDir, bestAngle >= 40f ? Mathf.Clamp(bestAngle - 3f, 40f, 87f) : 87f);
             return (bestDir, Mathf.Clamp(bestAngle - 3f, 15f, 90f));
         }
 

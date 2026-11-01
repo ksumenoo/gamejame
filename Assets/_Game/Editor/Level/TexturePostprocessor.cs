@@ -12,6 +12,16 @@ namespace Jam.EditorTools
         void OnPreprocessTexture()
         {
             string p = assetPath.Replace('\\', '/');
+            if (p.StartsWith("Assets/Resources/Menu/"))
+            {
+                // фон меню: без подгонки под степень двойки (иначе 630×500 сплющится в квадрат), без сжатия
+                var mi = (TextureImporter)assetImporter;
+                mi.npotScale = TextureImporterNPOTScale.None;
+                mi.mipmapEnabled = false;
+                mi.textureCompression = TextureImporterCompression.Uncompressed;
+                mi.filterMode = FilterMode.Bilinear;
+                return;
+            }
             if (!p.StartsWith("Assets/Art/2D/")) return;
             if (p.Contains("/Palette/")) return;
 
