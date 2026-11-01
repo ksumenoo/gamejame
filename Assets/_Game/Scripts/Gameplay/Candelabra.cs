@@ -111,7 +111,8 @@ namespace Jam.Gameplay
         {
             get
             {
-                if (!GhostMode) return IsLit ? "" : "Зажечь канделябр";
+                // подсказка — только там, где канделябр правда можно зажечь (нужен для снимка); иначе она путала
+                if (!GhostMode) return !IsLit && HasFlame && NeededForShot() ? "Зажечь канделябр" : "";
                 if (!IsLit || !HasFlame) return "";
                 return _hold > 0f ? $"Гаснет… {Mathf.RoundToInt(_hold / holdSeconds * 100f)}%" : "Погасить свечу (держать E)";
             }

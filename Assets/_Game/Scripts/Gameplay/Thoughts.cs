@@ -47,6 +47,7 @@ namespace Jam.Gameplay
             string line = ShowText ? text ?? "" : "";
             if (!string.IsNullOrEmpty(keys)) line += (line.Length > 0 ? "\n" : "") + "<color=#9a9488>" + keys + "</color>";
             if (line.Length > 0 && PlateCounterUI.Instance) PlateCounterUI.Instance.ShowHint(line);
+            if (!string.IsNullOrEmpty(keys)) CenterHint.Show(keys);
 
             var clip = Resources.Load<AudioClip>("VO/vo_" + id);
             if (!clip) return;

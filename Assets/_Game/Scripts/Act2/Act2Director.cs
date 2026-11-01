@@ -359,7 +359,9 @@ namespace Jam.Gameplay
                 if (meter) meter.Clear();
                 foreach (var c in PhotographerCamera.All.ToList()) if (c) c.Remove();
                 // пластина, которую он уронил: картинка художников, иначе последняя проявленная из альбома
-                Texture plate = finalPlate;
+                // пластина с героем среди семьи (Resources/Plates/P_Final_Act2) — без пересборки уровня
+                Texture plate = Resources.Load<Texture2D>("Plates/P_Final_Act2");
+                if (!plate) plate = finalPlate;
                 if (!plate)
                 {
                     var album = FindAnyObjectByType<FamilyAlbum>();
